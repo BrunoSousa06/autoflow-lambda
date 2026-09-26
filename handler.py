@@ -100,25 +100,26 @@ def _password_matches(password, password_hash):
 def _generate_token(user):
     now = datetime.now(timezone.utc)
 
+    # 3600 segundos = 1 hora
     expires_in = int(
         os.getenv("JWT_EXPIRES_IN_SECONDS", "3600")
     )
 
     payload = {
         "sub": user["cpf_cnpj"],
-        "cpf": user["cpf_cnpj"],
-        "clienteId": user["cliente_id"],
-        "usuarioId": user["usuario_id"],
         "role": user["role"],
+
         "iat": now,
         "exp": now + timedelta(seconds=expires_in),
     }
 
-    return jwt.encode(
+    token = jwt.encode(
         payload,
         os.environ["JWT_SECRET"],
         algorithm="HS256",
-    ), expires_in
+    )
+
+    return token, expires_in
 
 
 def lambda_handler(event, context):
@@ -128,7 +129,9 @@ def lambda_handler(event, context):
         if not isinstance(payload, dict):
             return _response(
                 400,
-                {"message": "O corpo da requisição deve ser um JSON válido."},
+                {
+                    "message": "O corpo da requisição deve ser um JSON válido."
+                },
             )
 
         cpf = _cpf_digits(payload.get("cpf"))
@@ -137,29 +140,35 @@ def lambda_handler(event, context):
     except (TypeError, ValueError, json.JSONDecodeError):
         return _response(
             400,
-            {"message": "O corpo da requisição é inválido."},
+            {
+                "message": "O corpo da requisição é inválido."
+            },
         )
 
     if len(cpf) != 11:
         return _response(
             400,
-            {"message": "O CPF deve conter 11 dígitos."},
+            {
+                "message": "O CPF deve conter 11 dígitos."
+            },
         )
 
     if not senha or not isinstance(senha, str):
         return _response(
             400,
-            {"message": "A senha é obrigatória."},
+            {
+                "message": "A senha é obrigatória."
+            },
         )
 
     try:
         user = _find_user_by_cpf(cpf)
-
-        # Não diferencia CPF inexistente de senha incorreta.
         if not user:
             return _response(
                 401,
-                {"message": "CPF ou senha inválidos."},
+                {
+                    "message": "CPF ou senha inválidos."
+                },
             )
 
         if not _password_matches(
@@ -168,7 +177,9 @@ def lambda_handler(event, context):
         ):
             return _response(
                 401,
-                {"message": "CPF ou senha inválidos."},
+                {
+                    "message": "CPF ou senha inválidos."
+                },
             )
 
         token, expires_in = _generate_token(user)
@@ -185,11 +196,15 @@ def lambda_handler(event, context):
     except psycopg2.Error:
         return _response(
             500,
-            {"message": "Erro ao acessar o banco de dados."},
+            {
+                "message": "Erro ao acessar o banco de dados."
+            },
         )
 
     except Exception:
         return _response(
             500,
-            {"message": "Não foi possível realizar a autenticação."},
+            {
+                "message": "Não foi possível realizar a autenticação."
+            },
         )
