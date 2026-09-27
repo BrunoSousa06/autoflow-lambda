@@ -31,8 +31,8 @@ def _request_body(event):
     return body
 
 
-def _cpf_digits(cpf):
-    return re.sub(r"\D", "", str(cpf or ""))
+def _document_digits(document):
+    return re.sub(r"\D", "", str(document or ""))
 
 
 def _get_connection():
@@ -46,7 +46,7 @@ def _get_connection():
     )
 
 
-def _find_user_by_cpf(cpf):
+def _find_user_by_document(cpf_cnpj):
     connection = _get_connection()
 
     try:
@@ -54,17 +54,14 @@ def _find_user_by_cpf(cpf):
             cursor.execute(
                 """
                 SELECT
-                    c.id AS cliente_id,
-                    c.cpf_cnpj,
-                    u.id AS usuario_id,
+                    u.id,
+                    u.cpf_cnpj,
                     u.senha,
                     u.role
-                FROM clientes c
-                INNER JOIN usuarios u
-                    ON u.id = c.usuario_id
-                WHERE c.cpf_cnpj = %s
+                FROM usuarios u
+                WHERE u.cpf_cnpj = %s
                 """,
-                (cpf,),
+                (cpf_cnpj,),
             )
 
             row = cursor.fetchone()
@@ -73,11 +70,10 @@ def _find_user_by_cpf(cpf):
                 return None
 
             return {
-                "cliente_id": row[0],
+                "usuario_id": row[0],
                 "cpf_cnpj": row[1],
-                "usuario_id": row[2],
-                "senha": row[3],
-                "role": row[4],
+                "senha": row[2],
+                "role": row[3],
             }
 
     finally:
@@ -100,7 +96,6 @@ def _password_matches(password, password_hash):
 def _generate_token(user):
     now = datetime.now(timezone.utc)
 
-    # 3600 segundos = 1 hora
     expires_in = int(
         os.getenv("JWT_EXPIRES_IN_SECONDS", "3600")
     )
@@ -108,7 +103,6 @@ def _generate_token(user):
     payload = {
         "sub": user["cpf_cnpj"],
         "role": user["role"],
-
         "iat": now,
         "exp": now + timedelta(seconds=expires_in),
     }
@@ -123,6 +117,7 @@ def _generate_token(user):
 
 
 def lambda_handler(event, context):
+
     try:
         payload = _request_body(event)
 
@@ -134,7 +129,10 @@ def lambda_handler(event, context):
                 },
             )
 
-        cpf = _cpf_digits(payload.get("cpf"))
+        cpf_cnpj = _document_digits(
+            payload.get("cpf_cnpj")
+        )
+
         senha = payload.get("senha")
 
     except (TypeError, ValueError, json.JSONDecodeError):
@@ -145,11 +143,12 @@ def lambda_handler(event, context):
             },
         )
 
-    if len(cpf) != 11:
+    # CPF ou CNPJ
+    if len(cpf_cnpj) not in (11, 14):
         return _response(
             400,
             {
-                "message": "O CPF deve conter 11 dígitos."
+                "message": "CPF deve conter 11 dígitos ou CNPJ deve conter 14 dígitos."
             },
         )
 
@@ -162,12 +161,14 @@ def lambda_handler(event, context):
         )
 
     try:
-        user = _find_user_by_cpf(cpf)
+
+        user = _find_user_by_document(cpf_cnpj)
+
         if not user:
             return _response(
                 401,
                 {
-                    "message": "CPF ou senha inválidos."
+                    "message": "CPF/CNPJ ou senha inválidos."
                 },
             )
 
@@ -178,7 +179,7 @@ def lambda_handler(event, context):
             return _response(
                 401,
                 {
-                    "message": "CPF ou senha inválidos."
+                    "message": "CPF/CNPJ ou senha inválidos."
                 },
             )
 
@@ -193,7 +194,10 @@ def lambda_handler(event, context):
             },
         )
 
-    except psycopg2.Error:
+    except psycopg2.Error as e:
+
+        print("ERRO POSTGRES:", repr(e))
+
         return _response(
             500,
             {
@@ -201,10 +205,13 @@ def lambda_handler(event, context):
             },
         )
 
-    except Exception:
+    except Exception as e:
+
+        print("ERRO INESPERADO:", repr(e))
+
         return _response(
             500,
             {
-                "message": "Não foi possível realizar a autenticação."
+                "message": "Erro interno."
             },
         )
