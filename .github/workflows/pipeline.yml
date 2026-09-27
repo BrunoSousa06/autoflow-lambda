@@ -1,4 +1,4 @@
-name: RDS Pipeline
+name: Lambda Pipeline
 
 on:
   push:
