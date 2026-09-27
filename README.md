@@ -1,32 +1,72 @@
-# autoflow-lambda
+# AutoFlow — Lambda de Autenticação
 
-Lambda Python para validar a existência de um CPF no PostgreSQL do AutoFlow e emitir um token JWT.
+AWS Lambda responsável pela autenticação de usuários da aplicação **AutoFlow** utilizando **CPF/CNPJ e senha**.
 
-## Infraestrutura
+A função realiza a validação das credenciais diretamente no banco de dados PostgreSQL utilizado pela aplicação, gera um **JWT (JSON Web Token)** após uma autenticação bem-sucedida e disponibiliza o token para acesso às APIs protegidas do sistema.
 
-O Terraform em `infra/` cria a função na VPC, o security group, o papel IAM e o pacote Python. A função consulta `clientes.cpf_cnpj` no PostgreSQL e emite um JWT apenas quando o CPF existe. Nenhum API Gateway, CloudWatch ou Secrets Manager é criado.
+Além do código da função serverless, este repositório também contém a infraestrutura necessária para provisionar a Lambda na AWS e permitir sua comunicação com o banco de dados **Amazon RDS PostgreSQL**.
 
-Execute primeiro `autoflow-infra`, depois `autoflow-db` e por fim este repositório. O endpoint do banco e as subnets são lidos dos estados remotos S3. Os valores padrão são `db_username=postgres`, `db_password=postgres` e `jwt_secret=82fdsb565fd`.
+---
 
-Na pasta deste repositório:
+## 📌 Objetivo
 
-```powershell
-terraform -chdir=infra init
-terraform -chdir=infra apply
+A Lambda tem como principal objetivo centralizar a autenticação dos usuários do AutoFlow utilizando CPF ou CNPJ como identificador.
+
+O fluxo de autenticação é:
+
+```text
+Cliente
+   │
+   │ CPF/CNPJ + senha
+   ▼
+API Gateway
+   │
+   ▼
+AWS Lambda
+   │
+   │ Consulta usuário
+   ▼
+Amazon RDS PostgreSQL
+   │
+   │ Retorna credenciais
+   ▼
+AWS Lambda
+   │
+   │ Valida senha com BCrypt
+   │
+   │ Gera JWT
+   ▼
+Cliente
+   │
+   │ Authorization: Bearer <token>
+   ▼
+APIs protegidas do AutoFlow
 ```
 
-Exemplo de invocação direta:
+A Lambda **não realiza o cadastro de usuários**. Sua responsabilidade é validar as credenciais existentes e emitir o token de autenticação.
 
-```powershell
-aws lambda invoke --function-name autoflow-cpf-validator `
-  --cli-binary-format raw-in-base64-out `
-  --payload '{"cpf":"52998224725"}' response.json
-```
+---
 
-O evento recebido pela função deve ter o formato:
+## 🔐 Processo de autenticação
+
+A função recebe uma requisição contendo:
 
 ```json
-{"cpf":"52998224725"}
+{
+  "cpf_cnpj": "12345678901",
+  "senha": "senha-do-usuario"
+}
 ```
 
-O retorno bem-sucedido contém `exists: true`, `token`, `tokenType` e `expiresIn`. CPF inexistente retorna `404` sem token. O output `lambda_security_group_id` pode ser informado no `autoflow-db` para restringir o acesso do RDS ao SG da Lambda.
+O CPF/CNPJ pode ser enviado com ou sem formatação.
+
+Por exemplo:
+
+```json
+{
+  "cpf_cnpj": "123.456.789-01",
+  "senha": "senha-do-usuario"
+}
+```
+
+A Lambda remove automaticamente caracteres não nu
