@@ -10,12 +10,13 @@ on:
 
 jobs:
   terraform:
-    name: Deploy RDS with Terraform
+    name: Deploy Lambda with Terraform
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     env:
-      TF_VAR_database_username: ${{ secrets.DATABASE_USERNAME }}
-      TF_VAR_database_password: ${{ secrets.DATABASE_PASSWORD }}
+      TF_VAR_db_username: ${{ secrets.DATABASE_USERNAME }}
+      TF_VAR_db_password: ${{ secrets.DATABASE_PASSWORD }}
+      TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
 
     steps:
       - name: Checkout code

@@ -15,19 +15,16 @@ variable "db_name" {
 
 variable "db_username" {
   type      = string
-  default   = "postgres"
   sensitive = true
 }
 
 variable "db_password" {
   type      = string
-  default   = "postgres"
   sensitive = true
 }
 
 variable "jwt_secret" {
   type      = string
-  default   = "82fdsb565fd"
   sensitive = true
 }
 
@@ -37,5 +34,5 @@ variable "jwt_expires_in_seconds" {
 }
 
 variable "role_arn" {
-  default = "arn:aws:iam::724623091343:role/LabRole"
+  default = "arn:aws:iam::264066152659:role/LabRole"
 }
