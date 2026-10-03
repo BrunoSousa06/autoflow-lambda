@@ -27,7 +27,7 @@ variable "db_password" {
 
 variable "jwt_secret" {
   type      = string
-  default   = "82fdsb565fd"
+  default   = "8aF3mK9pQ2xV7nRt5YcW1zLb4DsH6jTe0UrN8gXp3CvM7qAz9FkP2hYs6BwLd4Xe"
   sensitive = true
 }
 
@@ -37,5 +37,5 @@ variable "jwt_expires_in_seconds" {
 }
 
 variable "role_arn" {
-  default = "arn:aws:iam::724623091343:role/LabRole"
+  default = "arn:aws:iam::264066152659:role/LabRole"
 }
