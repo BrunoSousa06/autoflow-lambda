@@ -3,6 +3,17 @@ variable "region" {
   default = "us-east-1"
 }
 
+variable "environment" {
+  type        = string
+  description = "Ambiente que receberá os recursos da autenticação."
+  default     = "homolog"
+
+  validation {
+    condition     = contains(["homolog", "production"], var.environment)
+    error_message = "environment deve ser homolog ou production."
+  }
+}
+
 variable "lambda_name" {
   type    = string
   default = "autoflow-cpf-validator"

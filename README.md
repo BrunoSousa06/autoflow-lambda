@@ -1,55 +1,11 @@
-# AutoFlow — Lambda de Autenticação
+# AutoFlow — Lambda de autenticação
 
-AWS Lambda responsável pela autenticação de usuários da aplicação **AutoFlow** utilizando **CPF/CNPJ e senha**.
+Este repositório contém a função AWS Lambda que valida CPF/CNPJ e senha no PostgreSQL do AutoFlow e emite o JWT usado
+pelas APIs protegidas. A infraestrutura Terraform também publica a função por uma API HTTP do API Gateway.
 
-A função realiza a validação das credenciais diretamente no banco de dados PostgreSQL utilizado pela aplicação, gera um **JWT (JSON Web Token)** após uma autenticação bem-sucedida e disponibiliza o token para acesso às APIs protegidas do sistema.
+## Contrato de login
 
-Além do código da função serverless, este repositório também contém a infraestrutura necessária para provisionar a Lambda na AWS e permitir sua comunicação com o banco de dados **Amazon RDS PostgreSQL**.
-
----
-
-## 📌 Objetivo
-
-A Lambda tem como principal objetivo centralizar a autenticação dos usuários do AutoFlow utilizando CPF ou CNPJ como identificador.
-
-O fluxo de autenticação é:
-
-```text
-Cliente
-   │
-   │ CPF/CNPJ + senha
-   ▼
-API Gateway
-   │
-   ▼
-AWS Lambda
-   │
-   │ Consulta usuário
-   ▼
-Amazon RDS PostgreSQL
-   │
-   │ Retorna credenciais
-   ▼
-AWS Lambda
-   │
-   │ Valida senha com BCrypt
-   │
-   │ Gera JWT
-   ▼
-Cliente
-   │
-   │ Authorization: Bearer <token>
-   ▼
-APIs protegidas do AutoFlow
-```
-
-A Lambda **não realiza o cadastro de usuários**. Sua responsabilidade é validar as credenciais existentes e emitir o token de autenticação.
-
----
-
-## 🔐 Processo de autenticação
-
-A função recebe uma requisição contendo:
+`POST /auth/login` é uma rota pública. O corpo deve ser JSON:
 
 ```json
 {
@@ -58,15 +14,56 @@ A função recebe uma requisição contendo:
 }
 ```
 
-O CPF/CNPJ pode ser enviado com ou sem formatação.
-
-Por exemplo:
+O CPF/CNPJ pode conter pontuação. A resposta de sucesso é `200`:
 
 ```json
 {
-  "cpf_cnpj": "123.456.789-01",
-  "senha": "senha-do-usuario"
+  "token": "<jwt>",
+  "tokenType": "Bearer",
+  "expiresIn": 3600
 }
 ```
 
-A Lambda remove automaticamente caracteres não nu
+Os erros do contrato são:
+
+| Status | Situação | Mensagem |
+| --- | --- | --- |
+| `400` | JSON, documento ou senha inválidos | mensagem de validação |
+| `401` | CPF/CNPJ ou senha incorretos | `CPF/CNPJ ou senha inválidos.` |
+| `500` | Falha ao consultar o banco | `Erro ao acessar o banco de dados.` |
+
+## Ambientes
+
+O pipeline mapeia as branches para ambientes isolados:
+
+| Branch | Ambiente | Estado Terraform | Stage do API Gateway |
+| --- | --- | --- | --- |
+| `develop` | `homolog` | `lambda/homolog.tfstate` | `homolog` |
+| `main` | `production` | `lambda/production.tfstate` | `production` |
+
+Cada ambiente cria uma Lambda e uma API próprias. O output `api_gateway_login_url` informa a URL pública completa:
+
+```text
+https://<api-id>.execute-api.<regiao>.amazonaws.com/<ambiente>/auth/login
+```
+
+Os arquivos `environments/homolog.tfvars` e `environments/production.tfvars` mantêm a seleção de ambiente fora dos
+recursos Terraform. As credenciais do banco e o segredo JWT devem ser fornecidos por secrets do GitHub Actions, nunca
+versionados.
+
+## Execução local
+
+Pré-requisitos: Python 3.12, Terraform 1.5+ e credenciais AWS configuradas. O backend remoto também exige os estados
+de infraestrutura e banco referenciados em `infra/data.tf`.
+
+```bash
+python -m pip install -r requirements.txt
+python -m unittest discover -s . -p "test_*.py" -v
+
+cd infra
+terraform init -backend-config="key=lambda/homolog.tfstate"
+terraform validate
+terraform plan -var-file="../environments/homolog.tfvars"
+```
+
+Não execute `terraform apply` sem conferir os secrets e os estados remotos do ambiente escolhido.

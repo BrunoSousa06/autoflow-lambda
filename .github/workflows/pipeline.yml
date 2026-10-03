@@ -10,10 +10,12 @@ on:
 
 jobs:
   terraform:
-    name: Deploy Lambda with Terraform
+    name: Deploy authentication Lambda and API Gateway
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'homolog' }}
     env:
+      TF_VAR_environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'homolog' }}
       TF_VAR_db_username: ${{ secrets.DATABASE_USERNAME }}
       TF_VAR_db_password: ${{ secrets.DATABASE_PASSWORD }}
       TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
@@ -33,9 +35,15 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Install Lambda dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run Lambda tests
+        run: python -m unittest discover -s . -p "test_*.py" -v
+
       - name: Terraform Init
         working-directory: ./infra
-        run: terraform init
+        run: terraform init -input=false -reconfigure -backend-config="key=lambda/${TF_VAR_environment}.tfstate"
 
       - name: Terraform Validate
         working-directory: ./infra
@@ -43,9 +51,9 @@ jobs:
 
       - name: Terraform Plan
         working-directory: ./infra
-        run: terraform plan
+        run: terraform plan -input=false -var-file="../environments/${TF_VAR_environment}.tfvars"
 
       - name: Terraform Apply
         working-directory: ./infra
-        run: terraform apply -auto-approve
+        run: terraform apply -input=false -auto-approve -var-file="../environments/${TF_VAR_environment}.tfvars"
 

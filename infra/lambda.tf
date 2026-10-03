@@ -1,5 +1,5 @@
 resource "aws_lambda_function" "cpf_validator" {
-  function_name    = var.lambda_name
+  function_name    = "${var.lambda_name}-${var.environment}"
   role             = var.role_arn
   handler          = "handler.lambda_handler"
   runtime          = "python3.12"
@@ -9,15 +9,16 @@ resource "aws_lambda_function" "cpf_validator" {
   memory_size      = 256
 
   vpc_config {
-  subnet_ids = data.terraform_remote_state.infra.outputs.private_subnet_ids
+    subnet_ids         = data.terraform_remote_state.infra.outputs.private_subnet_ids
 
-  security_group_ids = [
-    data.terraform_remote_state.db.outputs.lambda_security_group_id
-  ]
-}
+    security_group_ids = [
+      data.terraform_remote_state.db.outputs.lambda_security_group_id
+    ]
+  }
 
   environment {
     variables = {
+      AUTOFLOW_ENVIRONMENT   = var.environment
       DB_HOST                = data.terraform_remote_state.db.outputs.postgres_endpoint
       DB_PORT                = tostring(data.terraform_remote_state.db.outputs.postgres_port)
       DB_NAME                = var.db_name
