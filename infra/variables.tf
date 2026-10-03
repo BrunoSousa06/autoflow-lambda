@@ -15,19 +15,16 @@ variable "db_name" {
 
 variable "db_username" {
   type      = string
-  default   = "postgres"
   sensitive = true
 }
 
 variable "db_password" {
   type      = string
-  default   = "postgres"
   sensitive = true
 }
 
 variable "jwt_secret" {
   type      = string
-  default   = "8aF3mK9pQ2xV7nRt5YcW1zLb4DsH6jTe0UrN8gXp3CvM7qAz9FkP2hYs6BwLd4Xe"
   sensitive = true
 }
 
