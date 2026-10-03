@@ -32,7 +32,7 @@ resource "null_resource" "lambda_dependencies" {
   }
 
   provisioner "local-exec" {
-    command     = "powershell -ExecutionPolicy Bypass -File ${path.module}/../build.ps1"
+    command     = "bash ${path.module}/../build.sh"
     working_dir = path.module
   }
 }
