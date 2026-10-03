@@ -8,5 +8,5 @@ output "lambda_function_name" {
 }
 
 output "lambda_invoke_command" {
-  value = "aws lambda invoke --function-name ${aws_lambda_function.cpf_validator.function_name} --cli-binary-format raw-in-base64-out --payload '{\"cpf\":\"52998224725\"}' response.json"
+  value = "aws lambda invoke --function-name ${aws_lambda_function.cpf_validator.function_name} --cli-binary-format raw-in-base64-out --payload '{\"cpf\":\"52998224725\",\"senha\":\"123456\"}' response.json"
 }
