@@ -8,8 +8,9 @@ on:
 jobs:
   create-pr:
     runs-on: ubuntu-latest
+
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
 
     steps:
@@ -20,7 +21,7 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          base: develop 
+          base: develop
           branch: ${{ github.ref_name }}
           title: "PR automatico ${{ github.ref_name }} para develop"
           body: |
