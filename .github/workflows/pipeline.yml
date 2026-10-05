@@ -2,17 +2,16 @@ name: Lambda Pipeline
 
 on:
   push:
-    branches: ["develop", "main"]
+    branches: ["develop", "homolog", "main"]
 
   pull_request:
     types: [opened, synchronize, reopened]
-    branches: ["develop", "main"]
+    branches: ["homolog"]
 
 jobs:
   terraform:
     name: Deploy Lambda with Terraform
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     env:
       TF_VAR_db_username: ${{ secrets.DATABASE_USERNAME }}
       TF_VAR_db_password: ${{ secrets.DATABASE_PASSWORD }}
@@ -46,6 +45,7 @@ jobs:
         run: terraform plan
 
       - name: Terraform Apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/homolog
         working-directory: ./infra
         run: terraform apply -auto-approve
 
