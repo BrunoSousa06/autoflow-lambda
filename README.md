@@ -69,4 +69,4 @@ Por exemplo:
 }
 ```
 
-A Lambda remove automaticamente caracteres não numericos do campo cpf
+A Lambda remove automaticamente caracteres não numericos do campo cpf.
