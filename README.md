@@ -8,7 +8,7 @@ Além do código da função serverless, este repositório também contém a inf
 
 ---
 
-## 📌 Objetivo 
+## 📌 Objetivo
 
 A Lambda tem como principal objetivo centralizar a autenticação dos usuários do AutoFlow utilizando CPF ou CNPJ como identificador.
 
@@ -69,4 +69,4 @@ Por exemplo:
 }
 ```
 
-A Lambda remove automaticamente caracteres não nu
+A Lambda remove automaticamente caracteres não numericos do campo cpf
