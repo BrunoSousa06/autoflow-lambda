@@ -2,11 +2,11 @@ name: Lambda Pipeline
 
 on:
   push:
-    branches: ["develop", "homolog", "main"]
+    branches: ["develop", "main"]
 
   pull_request:
     types: [opened, synchronize, reopened]
-    branches: ["homolog"]
+    branches: ["develop"]
 
 jobs:
   terraform:
@@ -45,7 +45,7 @@ jobs:
         run: terraform plan
 
       - name: Terraform Apply
-        if: github.event_name == 'push' && github.ref == 'refs/heads/homolog
+        if: github.event_name == 'push' && github.ref == 'refs/heads/develop
         working-directory: ./infra
         run: terraform apply -auto-approve
 
