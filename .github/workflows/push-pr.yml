@@ -1,0 +1,29 @@
+name: PR automatico para develop
+
+on:
+  push:
+    branches-ignore:
+      - develop
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: \${{ secrets.GITHUB_TOKEN }}
+          base: develop 
+          branch: \${{ github.ref_name }}
+          title: "PR automatico ${{ github.ref_name }} para develop"
+          body: |
+            Pull Request criado automaticamente devido ao push na branch `${{ github.ref_name }}`.
+          labels: |
+            pr-automatico
