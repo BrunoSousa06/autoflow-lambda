@@ -1,6 +1,13 @@
 resource "aws_apigatewayv2_api" "authentication" {
   name          = "${var.lambda_name}-${var.environment}-api"
   protocol_type = "HTTP"
+
+  cors_configuration {
+    allow_origins = var.frontend_allowed_origins
+    allow_methods = ["POST", "OPTIONS"]
+    allow_headers = ["content-type"]
+    max_age       = 3600
+  }
   description   = "API pública de autenticação do AutoFlow (${var.environment})"
 }
 

@@ -3,6 +3,13 @@
 Este repositório contém a função AWS Lambda que valida CPF/CNPJ e senha no PostgreSQL do AutoFlow e emite o JWT usado
 pelas APIs protegidas. A infraestrutura Terraform também publica a função por uma API HTTP do API Gateway.
 
+O `JWT_SECRET` configurado na Lambda deve ser exatamente o mesmo `JWT_SECRET` fornecido ao backend. O token usa HS256,
+tem o CPF/CNPJ normalizado no claim `sub` e o backend consulta o perfil atual do usuário no banco; o claim `role` não é
+usado para conceder permissões.
+
+Para `CLIENTE`, a Lambda exige uma linha correspondente em `clientes` com `status = ATIVO`. Cliente inexistente ou
+inativo recebe a mesma resposta `401` de credencial inválida e nenhum token é emitido.
+
 ## Contrato de login
 
 `POST /auth/login` é uma rota pública. O corpo deve ser JSON:
@@ -50,6 +57,10 @@ https://<api-id>.execute-api.<regiao>.amazonaws.com/<ambiente>/auth/login
 Os arquivos `environments/homolog.tfvars` e `environments/production.tfvars` mantêm a seleção de ambiente fora dos
 recursos Terraform. As credenciais do banco e o segredo JWT devem ser fornecidos por secrets do GitHub Actions, nunca
 versionados.
+
+Para o frontend chamar o API Gateway diretamente pelo navegador, informe as origens em
+`frontend_allowed_origins` no arquivo `.tfvars` do ambiente. O recurso HTTP API publica CORS para `POST` e `OPTIONS`;
+o frontend deve configurar `serverlessAuthUrl` com a URL base, sem `/auth/login`.
 
 ## Execução local
 

@@ -37,11 +37,27 @@ variable "db_password" {
 variable "jwt_secret" {
   type      = string
   sensitive = true
+
+  validation {
+    condition     = length(trimspace(var.jwt_secret)) >= 32
+    error_message = "jwt_secret deve possuir pelo menos 32 caracteres."
+  }
 }
 
 variable "jwt_expires_in_seconds" {
   type    = number
   default = 3600
+
+  validation {
+    condition     = var.jwt_expires_in_seconds > 0
+    error_message = "jwt_expires_in_seconds deve ser maior que zero."
+  }
+}
+
+variable "frontend_allowed_origins" {
+  type        = list(string)
+  description = "Origens autorizadas a chamar o login serverless pelo navegador."
+  default     = ["http://localhost:4200"]
 }
 
 variable "role_arn" {

@@ -2,11 +2,12 @@ import base64
 import json
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import jwt
 import psycopg2
 
-from handler import lambda_handler
+from handler import _find_user_by_document, _generate_token, lambda_handler
 
 
 class LambdaHandlerTest(unittest.TestCase):
@@ -41,6 +42,7 @@ class LambdaHandlerTest(unittest.TestCase):
             "cpf_cnpj": "52998224725",
             "senha": "hash",
             "role": "CLIENTE",
+            "cliente_status": "ATIVO",
         }
 
         with patch("handler._find_user_by_document", return_value=user) as find_user, patch(
@@ -58,6 +60,119 @@ class LambdaHandlerTest(unittest.TestCase):
         self.assertEqual(self.response_body(response)["token"], "jwt-token")
         self.assertEqual(self.response_body(response)["tokenType"], "Bearer")
         find_user.assert_called_once_with("52998224725")
+
+    def test_deve_rejeitar_cpf_com_digito_verificador_invalido(self):
+        with patch("handler._find_user_by_document") as find_user:
+            response = lambda_handler(
+                self.gateway_event(
+                    {"cpf_cnpj": "529.982.247-26", "senha": "Senha@1234"}
+                ),
+                None,
+            )
+
+        self.assertEqual(response["statusCode"], 400)
+        find_user.assert_not_called()
+
+    def test_deve_rejeitar_cliente_inexistente(self):
+        user = {
+            "cpf_cnpj": "52998224725",
+            "senha": "hash",
+            "role": "CLIENTE",
+            "cliente_status": None,
+        }
+
+        with patch("handler._find_user_by_document", return_value=user), patch(
+            "handler._password_matches", return_value=True
+        ), patch("handler._generate_token") as generate_token:
+            response = lambda_handler(
+                self.gateway_event(
+                    {"cpf_cnpj": "52998224725", "senha": "Senha@1234"}
+                ),
+                None,
+            )
+
+        self.assertEqual(response["statusCode"], 401)
+        generate_token.assert_not_called()
+
+    def test_deve_rejeitar_cliente_inativo(self):
+        user = {
+            "cpf_cnpj": "52998224725",
+            "senha": "hash",
+            "role": "CLIENTE",
+            "cliente_status": "INATIVO",
+        }
+
+        with patch("handler._find_user_by_document", return_value=user), patch(
+            "handler._password_matches", return_value=True
+        ), patch("handler._generate_token") as generate_token:
+            response = lambda_handler(
+                self.gateway_event(
+                    {"cpf_cnpj": "52998224725", "senha": "Senha@1234"}
+                ),
+                None,
+            )
+
+        self.assertEqual(response["statusCode"], 401)
+        generate_token.assert_not_called()
+
+    def test_deve_aceitar_cnpj_valido(self):
+        user = {
+            "cpf_cnpj": "11222333000181",
+            "senha": "hash",
+            "role": "CLIENTE",
+            "cliente_status": "ATIVO",
+        }
+
+        with patch("handler._find_user_by_document", return_value=user) as find_user, patch(
+            "handler._password_matches", return_value=True
+        ), patch("handler._generate_token", return_value=("jwt-token", 3600)):
+            response = lambda_handler(
+                self.gateway_event(
+                    {"cpf_cnpj": "11.222.333/0001-81", "senha": "Senha@1234"}
+                ),
+                None,
+            )
+
+        self.assertEqual(response["statusCode"], 200)
+        find_user.assert_called_once_with("11222333000181")
+
+    def test_deve_gerar_jwt_com_subject_e_expiracao(self):
+        os.environ["JWT_SECRET"] = "s" * 64
+
+        token, expires_in = _generate_token(
+            {
+                "cpf_cnpj": "52998224725",
+                "role": "CLIENTE",
+                "email": "cliente@autoflow.com",
+            }
+        )
+        claims = jwt.decode(token, os.environ["JWT_SECRET"], algorithms=["HS256"])
+
+        self.assertEqual(claims["sub"], "52998224725")
+        self.assertEqual(claims["role"], "CLIENTE")
+        self.assertEqual(claims["email"], "cliente@autoflow.com")
+        self.assertEqual(expires_in, 3600)
+
+    def test_deve_consultar_status_do_cliente_ao_buscar_usuario(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (
+            1,
+            "52998224725",
+            "cliente@autoflow.com",
+            "hash",
+            "CLIENTE",
+            "ATIVO",
+        )
+
+        with patch("handler._get_connection", return_value=connection):
+            user = _find_user_by_document("52998224725")
+
+        self.assertEqual(user["cliente_status"], "ATIVO")
+        query = cursor.execute.call_args.args[0]
+        self.assertIn("c.status", query)
+        self.assertIn("LEFT JOIN clientes", query)
+        connection.close.assert_called_once_with()
 
     def test_deve_retornar_400_para_json_invalido(self):
         response = lambda_handler(self.gateway_event("{"), None)
