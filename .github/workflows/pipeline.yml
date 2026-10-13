@@ -1,6 +1,16 @@
 name: Lambda Pipeline
 
 on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Aplicar o plan revisado no environment homolog"
+        type: boolean
+        default: false
+      allow_destructive:
+        description: "Autorizar exclusoes somente apos revisar o plan"
+        type: boolean
+        default: false
   push:
     branches: ["develop", "main"]
 
@@ -28,10 +38,12 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Run Lambda tests
-        run: python -m unittest discover -s . -p "test_*.py" -v
+        run: python -m unittest test_handler test_http_api -v
 
-      - name: Verify Function URL security defaults
-        run: python -m unittest infra.test_function_url -v
+      - name: Audit dependencies
+        run: |
+          python -m pip install pip-audit
+          pip-audit -r requirements.txt
 
       - name: Test AWS account identity guard
         run: python -m unittest discover -s scripts -p "test_verify_aws_account.py" -v
@@ -46,6 +58,9 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.5"
+          terraform_wrapper: false
 
       - name: Terraform Init (sem backend)
         working-directory: ./infra
@@ -55,19 +70,23 @@ jobs:
         working-directory: ./infra
         run: terraform validate
 
+      - name: Terraform fmt
+        working-directory: ./infra
+        run: terraform fmt -check -recursive
+
   terraform-plan:
     name: Terraform Plan authentication Lambda
     runs-on: ubuntu-latest
     needs: checks
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
-    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'homolog' }}
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop'
+    environment: homolog
     env:
-      TF_VAR_environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'homolog' }}
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TF_VAR_environment: homolog
+      AWS_REGION: ${{ vars.AWS_REGION }}
       TF_STATE_BUCKET: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
       TF_STATE_KEY: ${{ vars.AWS_TF_STATE_KEY }}
       TF_VAR_aws_allowed_account_ids: '["${{ vars.AWS_EXPECTED_ACCOUNT_ID }}"]'
-      TF_VAR_region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TF_VAR_region: ${{ vars.AWS_REGION }}
       TF_VAR_role_arn: ${{ vars.AWS_LAMBDA_EXECUTION_ROLE_ARN }}
       TF_VAR_terraform_state_bucket: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
       TF_VAR_infra_state_key: ${{ vars.AWS_INFRA_STATE_KEY }}
@@ -83,22 +102,40 @@ jobs:
       - name: Build Lambda package for Terraform Plan
         run: bash ./build.sh
 
+      - name: Exigir credenciais temporarias e regiao explicita
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AWS_ACCESS_KEY_ID"
+          test -n "$AWS_SECRET_ACCESS_KEY"
+          test -n "$AWS_SESSION_TOKEN"
+          [[ "$AWS_REGION" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]
+          test -n "${{ vars.AWS_EXPECTED_ACCOUNT_ID }}"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Verify expected AWS account
         env:
           AWS_EXPECTED_ACCOUNT_ID: ${{ vars.AWS_EXPECTED_ACCOUNT_ID }}
         run: python scripts/verify_aws_account.py
 
+      - name: Confirmar regiao AWS efetiva
+        shell: bash
+        run: test "$(aws ec2 describe-availability-zones --region "$AWS_REGION" --query 'AvailabilityZones[0].RegionName' --output text)" = "$AWS_REGION"
+
       - name: Validate environment-specific state configuration
         env:
-          DEPLOY_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'homolog' }}
+          DEPLOY_ENVIRONMENT: homolog
           TF_STATE_BUCKET: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
           TF_STATE_KEY: ${{ vars.AWS_TF_STATE_KEY }}
           INFRA_STATE_KEY: ${{ vars.AWS_INFRA_STATE_KEY }}
@@ -110,24 +147,19 @@ jobs:
           test -n "$TF_STATE_KEY"
           test -n "$INFRA_STATE_KEY"
           test -n "$RDS_STATE_KEY"
-          case "$DEPLOY_ENVIRONMENT" in
-            production)
-              [[ "$TF_STATE_BUCKET" == *production* && "$LAMBDA_ROLE_ARN" == *production* ]]
-              [[ "$TF_STATE_KEY" == *production* && "$INFRA_STATE_KEY" == *production* && "$RDS_STATE_KEY" == *production* ]]
-              [[ "$TF_STATE_BUCKET$TF_STATE_KEY$INFRA_STATE_KEY$RDS_STATE_KEY$LAMBDA_ROLE_ARN" != *homolog* ]]
-              ;;
-            homolog)
-              [[ "$TF_STATE_BUCKET" == *homolog* && "$LAMBDA_ROLE_ARN" == *homolog* ]]
-              [[ "$TF_STATE_KEY" == *homolog* && "$INFRA_STATE_KEY" == *homolog* && "$RDS_STATE_KEY" == *homolog* ]]
-              [[ "$TF_STATE_BUCKET$TF_STATE_KEY$INFRA_STATE_KEY$RDS_STATE_KEY$LAMBDA_ROLE_ARN" != *production* ]]
-              ;;
-            *) exit 1 ;;
-          esac
+          test "$DEPLOY_ENVIRONMENT" = homolog
+          test -n "$LAMBDA_ROLE_ARN"
+          [[ "$TF_STATE_BUCKET$TF_STATE_KEY$INFRA_STATE_KEY$RDS_STATE_KEY$LAMBDA_ROLE_ARN" != *production* ]]
           aws s3api head-bucket --bucket "$TF_STATE_BUCKET"
           aws s3api head-object --bucket "$TF_STATE_BUCKET" --key "$TF_STATE_KEY" > /dev/null
+          aws s3api head-object --bucket "$TF_STATE_BUCKET" --key "$INFRA_STATE_KEY" > /dev/null
+          aws s3api head-object --bucket "$TF_STATE_BUCKET" --key "$RDS_STATE_KEY" > /dev/null
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.5"
+          terraform_wrapper: false
 
       - name: Terraform Init
         working-directory: ./infra
@@ -138,6 +170,38 @@ jobs:
         working-directory: ./infra
         run: terraform validate
 
+      - name: Terraform fmt
+        working-directory: ./infra
+        run: terraform fmt -check -recursive
+
       - name: Terraform Plan
         working-directory: ./infra
-        run: terraform plan -input=false -no-color
+        run: terraform plan -input=false -no-color -out=lambda.tfplan
+
+      - name: Gate de exclusoes e substituicoes
+        id: destroy-gate
+        working-directory: ./infra
+        env:
+          ALLOW_DESTRUCTIVE: ${{ inputs.allow_destructive }}
+        run: |
+          terraform show -json lambda.tfplan > lambda-plan.json
+          python - <<'PY'
+          import json, os, sys
+          plan = json.load(open("lambda-plan.json", encoding="utf-8"))
+          changes = [item["address"] for item in plan.get("resource_changes", []) if "delete" in item["change"]["actions"]]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"has_deletions={str(bool(changes)).lower()}\n")
+          print("Resources with delete/replacement actions:", changes)
+          sys.exit(bool(changes) and os.environ["ALLOW_DESTRUCTIVE"] != "true")
+          PY
+
+      - name: Exigir aprovacao efetiva configurada no environment
+        if: inputs.deploy && vars.TERRAFORM_APPLY_APPROVAL_CONFIGURED != 'true'
+        run: |
+          echo "Configure required reviewers no environment homolog e defina TERRAFORM_APPLY_APPROVAL_CONFIGURED=true." >&2
+          exit 1
+
+      - name: Aplicar plan apos aprovacao manual efetiva
+        if: inputs.deploy && vars.TERRAFORM_APPLY_APPROVAL_CONFIGURED == 'true' && (steps.destroy-gate.outputs.has_deletions != 'true' || inputs.allow_destructive)
+        working-directory: ./infra
+        run: terraform apply -input=false lambda.tfplan

@@ -61,6 +61,77 @@ class LambdaHandlerTest(unittest.TestCase):
         self.assertEqual(self.response_body(response)["tokenType"], "Bearer")
         find_user.assert_called_once_with("52998224725")
 
+    def test_deve_aceitar_evento_direto_com_contrato_atual_do_frontend(self):
+        user = {
+            "cpf_cnpj": "52998224725",
+            "senha": "hash",
+            "role": "CLIENTE",
+            "cliente_status": "ATIVO",
+        }
+        with patch("handler._find_user_by_document", return_value=user) as find_user, patch(
+            "handler._password_matches", return_value=True
+        ), patch("handler._generate_token", return_value=("jwt-token", 3600)):
+            response = lambda_handler(
+                {"cpf_cnpj": "52998224725", "senha": "senha-teste"}, None
+            )
+
+        self.assertEqual(response["statusCode"], 200)
+        find_user.assert_called_once_with("52998224725")
+
+    def test_deve_aceitar_cpf_cnpj_em_evento_http_api_v2(self):
+        with patch("handler._find_user_by_document", return_value=None) as find_user:
+            response = lambda_handler(
+                self.gateway_event(
+                    {"cpf_cnpj": "52998224725", "senha": "invalida"}
+                ),
+                None,
+            )
+
+        self.assertEqual(response["statusCode"], 401)
+        find_user.assert_called_once_with("52998224725")
+
+    def test_deve_retornar_400_para_body_base64_malformado(self):
+        event = self.gateway_event("{}")
+        event["body"] = "%%%"
+        event["isBase64Encoded"] = True
+
+        response = lambda_handler(event, None)
+
+        self.assertEqual(response["statusCode"], 400)
+        self.assertEqual(
+            self.response_body(response)["message"],
+            "O corpo da requisição é inválido.",
+        )
+
+    def test_deve_retornar_400_quando_campos_obrigatorios_estao_ausentes(self):
+        response = lambda_handler(self.gateway_event({}), None)
+
+        self.assertEqual(response["statusCode"], 400)
+        self.assertIn("11 dígitos", self.response_body(response)["message"])
+
+    def test_deve_retornar_401_para_senha_invalida(self):
+        user = {
+            "cpf_cnpj": "52998224725",
+            "senha": "hash",
+            "role": "CLIENTE",
+            "cliente_status": "ATIVO",
+        }
+        with patch("handler._find_user_by_document", return_value=user), patch(
+            "handler._password_matches", return_value=False
+        ):
+            response = lambda_handler(
+                self.gateway_event(
+                    {"cpf_cnpj": "52998224725", "senha": "incorreta"}
+                ),
+                None,
+            )
+
+        self.assertEqual(response["statusCode"], 401)
+        self.assertEqual(
+            self.response_body(response)["message"],
+            "CPF/CNPJ ou senha inválidos.",
+        )
+
     def test_deve_rejeitar_cpf_com_digito_verificador_invalido(self):
         with patch("handler._find_user_by_document") as find_user:
             response = lambda_handler(

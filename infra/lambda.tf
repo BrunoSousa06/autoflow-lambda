@@ -29,38 +29,3 @@ resource "aws_lambda_function" "cpf_validator" {
     }
   }
 }
-
-# Preserve a URL/state existente. AWS_IAM é o padrão; NONE só é habilitado
-# explicitamente para a demonstração acadêmica e torna a URL pública.
-resource "aws_lambda_function_url" "cpf_validator" {
-  count              = var.enable_lambda_function_url || var.enable_academic_demo_function_url ? 1 : 0
-  function_name      = aws_lambda_function.cpf_validator.function_name
-  authorization_type = var.enable_academic_demo_function_url ? "NONE" : "AWS_IAM"
-
-  lifecycle {
-    precondition {
-      condition     = !var.enable_academic_demo_function_url || (var.enable_lambda_function_url && var.environment == "homolog" && var.academic_demo_environment_confirmed)
-      error_message = "Modo acadêmico exige Function URL habilitada, environment=homolog e confirmação explícita de ambiente sem produção."
-    }
-  }
-}
-
-# As duas ações são exigidas pelas Function URLs atuais. InvokeFunction fica
-# limitado a invocações via URL; FunctionUrlAuthType limita a URL ao modo NONE.
-resource "aws_lambda_permission" "academic_demo_function_url" {
-  count                  = var.enable_academic_demo_function_url ? 1 : 0
-  statement_id           = "AllowAcademicDemoFunctionUrlInvokeUrl"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.cpf_validator.function_name
-  principal              = "*"
-  function_url_auth_type = "NONE"
-}
-
-resource "aws_lambda_permission" "academic_demo_invoke_via_url" {
-  count                    = var.enable_academic_demo_function_url ? 1 : 0
-  statement_id             = "AllowAcademicDemoInvokeViaFunctionUrl"
-  action                   = "lambda:InvokeFunction"
-  function_name            = aws_lambda_function.cpf_validator.function_name
-  principal                = "*"
-  invoked_via_function_url = true
-}
