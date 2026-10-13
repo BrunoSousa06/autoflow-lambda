@@ -253,9 +253,9 @@ def lambda_handler(event, context):
             },
         )
 
-    except psycopg2.Error as e:
+    except psycopg2.Error as error:
 
-        print("ERRO POSTGRES:", repr(e))
+        print("ERRO POSTGRES:", type(error).__name__)
 
         return _response(
             500,
@@ -264,9 +264,9 @@ def lambda_handler(event, context):
             },
         )
 
-    except Exception as e:
+    except Exception as error:
 
-        print("ERRO INESPERADO:", repr(e))
+        print("ERRO INESPERADO:", type(error).__name__)
 
         return _response(
             500,

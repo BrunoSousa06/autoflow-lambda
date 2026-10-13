@@ -3,13 +3,13 @@ resource "aws_lambda_function" "cpf_validator" {
   role             = var.role_arn
   handler          = "handler.lambda_handler"
   runtime          = "python3.12"
-  filename         = data.archive_file.lambda.output_path
-  source_code_hash = data.archive_file.lambda.output_base64sha256
+  filename         = "${path.module}/../lambda.zip"
+  source_code_hash = filebase64sha256("${path.module}/../lambda.zip")
   timeout          = 15
   memory_size      = 256
 
   vpc_config {
-    subnet_ids         = data.terraform_remote_state.infra.outputs.private_subnet_ids
+    subnet_ids = data.terraform_remote_state.infra.outputs.private_subnet_ids
 
     security_group_ids = [
       data.terraform_remote_state.db.outputs.lambda_security_group_id
@@ -28,4 +28,12 @@ resource "aws_lambda_function" "cpf_validator" {
       JWT_EXPIRES_IN_SECONDS = tostring(var.jwt_expires_in_seconds)
     }
   }
+}
+
+# AWS_IAM impede invocação anônima. A URL permanece desligada até que um
+# chamador autorizado consiga assinar requisições SigV4; não publicar NONE.
+resource "aws_lambda_function_url" "cpf_validator" {
+  count              = var.enable_lambda_function_url ? 1 : 0
+  function_name      = aws_lambda_function.cpf_validator.function_name
+  authorization_type = "AWS_IAM"
 }

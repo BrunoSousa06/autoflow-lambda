@@ -208,9 +208,10 @@ class LambdaHandlerTest(unittest.TestCase):
         )
 
     def test_deve_retornar_500_quando_banco_falhar(self):
-        with patch(
+        canary = "sensitive-login-data-canary"
+        with patch("builtins.print") as print_mock, patch(
             "handler._find_user_by_document",
-            side_effect=psycopg2.Error("database unavailable"),
+            side_effect=psycopg2.Error(canary),
         ):
             response = lambda_handler(
                 self.gateway_event(
@@ -224,6 +225,12 @@ class LambdaHandlerTest(unittest.TestCase):
             self.response_body(response)["message"],
             "Erro ao acessar o banco de dados.",
         )
+        logged_text = " ".join(
+            str(argument)
+            for call in print_mock.call_args_list
+            for argument in call.args
+        )
+        self.assertNotIn(canary, logged_text)
 
 
 if __name__ == "__main__":
