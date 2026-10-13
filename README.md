@@ -2,7 +2,7 @@
 
 Este repositório contém uma função AWS Lambda que valida CPF/CNPJ e senha usando PostgreSQL e emite o JWT consumido pelas APIs protegidas. A arquitetura pretendida é Frontend Angular → Kong OSS no EKS → AWS Lambda → PostgreSQL RDS privado. O handler e o Terraform descrevem a implementação local; a existência e a execução dos recursos na AWS precisam ser verificadas separadamente.
 
-O Terraform deste repositório não declara AWS API Gateway. A rota existente em `autoflow` usa o plugin Kong `aws-lambda`, mas permanece desligada. A alternativa Function URL está preparada com autorização `AWS_IAM`, também desligada; ela ainda não é integrada ao Kong, que não possui identidade AWS nem assinador SigV4 nesta configuração. Consulte [operações do Kong](../autoflow/docs/kong-gateway-operations.md) e a [decisão de preparação](../docs/specs/kong-lambda-function-url/decisoes.md).
+O Terraform deste repositório não declara AWS API Gateway. O modo acadêmico pode mudar temporariamente a autorização da Function URL existente para `NONE`; esse modo e as permissões públicas correspondentes ficam desabilitados por padrão. A integração pela rota do Kong permanece bloqueada até aprovação da exposição e TLS público. Consulte [operações do Kong](../autoflow/docs/kong-gateway-operations.md) e a [especificação de demonstração](../docs/specs/kong-lambda-function-url/implementacao-demonstracao.md).
 
 O `JWT_SECRET` da Lambda deve corresponder ao fornecido ao backend. O token usa HS256, contém o CPF/CNPJ normalizado no claim `sub` e o backend consulta o perfil atual do usuário no banco; o claim `role` do token não concede permissões.
 
@@ -37,7 +37,7 @@ O documento pode conter pontuação. A resposta de sucesso é `200`:
 
 ## Infraestrutura declarada
 
-`infra/lambda.tf` declara a função de autenticação em Python 3.12, empacotamento local do código, timeout de 15 segundos, execução nas subnets privadas recebidas do state de infraestrutura, Security Group recebido do state RDS e variáveis de ambiente para banco e JWT. `var.role_arn` continua sendo fornecida externamente; este Terraform não cria nem altera IAM Roles ou políticas. `aws_lambda_function_url.cpf_validator` é condicional por `enable_lambda_function_url` (padrão `false`) e usa somente `AWS_IAM`. Nenhuma permissão pública é criada. O endpoint ainda não é utilizado pelo Kong. Os valores de credenciais são inputs Terraform; não os registre em documentação, logs ou arquivos versionados.
+`infra/lambda.tf` declara a função de autenticação em Python 3.12, empacotamento local do código, timeout de 15 segundos, execução nas subnets privadas recebidas do state de infraestrutura, Security Group recebido do state RDS e variáveis de ambiente para banco e JWT. `var.role_arn` continua sendo fornecida externamente; este Terraform não cria nem altera a role de execução. `enable_lambda_function_url=true` por padrão preserva a URL homologada existente no state sob `AWS_IAM`; `enable_academic_demo_function_url=false` por padrão. No modo acadêmico a mesma URL muda para `NONE` e são criadas duas permissões `Principal="*"` condicionadas à invocação via Function URL. Não altera handler, Lambda, VPC ou RDS. Os valores de credenciais são inputs Terraform; não os registre em documentação, logs ou arquivos versionados.
 
 ### Integração Kong e IAM
 
@@ -47,7 +47,35 @@ Para invocação na mesma conta, a autorização pode ser concedida pela políti
 
 O Learner Lab pode limitar a criação/configuração de roles, políticas, IRSA/Pod Identity ou permissões Lambda, além de usar credenciais temporárias com expiração. A autorização da role externa de execução Lambda e a identidade do Kong devem ser verificadas no ambiente autorizado; não presumir que a role disponível no Lab possa assumir ambas as responsabilidades.
 
-Function URLs usam eventos e respostas compatíveis com payload HTTP API v2.0. O handler consome `body` e `isBase64Encoded` e devolve `statusCode`, `headers` e `body`; a AWS converte os campos em resposta HTTP. `AWS_IAM` exige SigV4 por chamada e permissões `lambda:InvokeFunctionUrl` e `lambda:InvokeFunction`. `NONE` admite invocação sem assinatura e não deve ser usado como atalho: a URL poderia ser chamada diretamente fora do Kong. Segredo HTTP compartilhado não equivale a IAM nem isolamento de rede. Sem identidade AWS do Kong e assinatura SigV4, a URL não deve ser ativada.
+Function URLs usam eventos e respostas compatíveis com payload HTTP API v2.0. O handler consome `body` e `isBase64Encoded` e devolve `statusCode`, `headers` e `body`; a AWS converte os campos em resposta HTTP. `AWS_IAM` exige SigV4 por chamada e permissões `lambda:InvokeFunctionUrl` e `lambda:InvokeFunction`. `NONE` admite invocação sem assinatura: a URL é publicamente invocável diretamente pela Internet e não fica restrita ao Kong. No modo acadêmico são declaradas `lambda:InvokeFunctionUrl` com condição `lambda:FunctionUrlAuthType=NONE` e `lambda:InvokeFunction` com `lambda:InvokedViaFunctionUrl=true`. Ao desativar o modo, Terraform remove as permissões e restaura `AWS_IAM`. Use somente CPFs/CNPJs fictícios e senhas de teste; nunca use conta real ou dados de produção. Não usar segredo compartilhado como falsa garantia de isolamento. O modo não é adequado para produção.
+
+### Ativação e rollback do modo acadêmico
+
+Faça apenas Plan localmente e solicite revisão/aprovação antes de qualquer Apply. Confirme state/conta por mecanismo operacional já aprovado e não exponha segredos no terminal. No PowerShell, a ativação planejada é:
+
+```powershell
+Set-Location .\autoflow-lambda
+bash ./build.sh
+Set-Location .\infra
+$env:TF_VAR_academic_demo_environment_confirmed = "true"
+terraform plan -var="enable_lambda_function_url=true" -var="enable_academic_demo_function_url=true" -var="academic_demo_environment_confirmed=true" -out=demo.tfplan
+terraform show -no-color demo.tfplan
+# Apply somente após aprovação explícita do plan revisado:
+# terraform apply demo.tfplan
+```
+
+O Plan deve mostrar atualização da URL existente de `AWS_IAM` para `NONE` e duas permissões públicas limitadas ao uso da Function URL; não deve substituir/destroçar `aws_lambda_function_url`, alterar `aws_lambda_function` ou tocar em VPC/RDS. O rollback, preferencialmente imediato após o teste, é:
+
+```powershell
+terraform plan -var="enable_lambda_function_url=true" -var="enable_academic_demo_function_url=false" -var="academic_demo_environment_confirmed=false" -out=rollback.tfplan
+terraform show -no-color rollback.tfplan
+# Após aprovação do plan de rollback:
+# terraform apply rollback.tfplan
+```
+
+O rollback esperado atualiza a mesma URL para `AWS_IAM` e remove ambas as permissões acadêmicas; confirme no Plan que não sobra `Principal="*"` de demonstração. Não desligue `enable_lambda_function_url` em homologação. A expiração da sessão Learner Lab pode impedir rollback imediato; não há garantia de execução automática.
+
+O Kong atual publica NLB `internet-facing` e não tem certificado público válido comprovado. A rota de autenticação não será habilitada nesse NLB. HTTP público não é adequado para transmitir senhas reais. A chamada direta da Function URL também continua acessível fora do Kong enquanto `NONE` estiver ativo.
 
 ### State e pipeline
 
