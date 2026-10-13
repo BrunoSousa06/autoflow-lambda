@@ -3,6 +3,6 @@ output "lambda_function_name" {
 }
 
 output "lambda_function_url" {
-  description = "Endpoint HTTPS da Function URL IAM, nulo enquanto desabilitada."
+  description = "Endpoint HTTPS da Function URL existente; não é segredo. Pode ser publicamente invocável durante o modo acadêmico."
   value       = try(aws_lambda_function_url.cpf_validator[0].function_url, null)
 }

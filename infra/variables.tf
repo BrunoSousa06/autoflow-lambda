@@ -71,7 +71,19 @@ variable "jwt_expires_in_seconds" {
 }
 
 variable "enable_lambda_function_url" {
-  description = "Cria uma Function URL privada com autorização AWS_IAM; desabilitada até existir caller SigV4 aprovado."
+  description = "Mantém a Function URL existente e protegida por AWS_IAM. Não desabilite para evitar a remoção da URL homologada."
+  type        = bool
+  default     = true
+}
+
+variable "enable_academic_demo_function_url" {
+  description = "Modo temporário de demonstração: permite invocação anônima da Function URL. A URL fica publicamente invocável; uso exclusivo com dados sintéticos e Apply manual autorizado."
+  type        = bool
+  default     = false
+}
+
+variable "academic_demo_environment_confirmed" {
+  description = "Confirma que o ambiente é homolog e não contém dados/contas de produção. Obrigatório para habilitar o modo acadêmico."
   type        = bool
   default     = false
 }
