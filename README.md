@@ -40,11 +40,15 @@ O `JWT_SECRET` da Lambda precisa corresponder ao do backend. O token usa `sub` c
 
 O plan de retirada da URL deve conter somente a destruição de `aws_lambda_function_url.cpf_validator[0]` e dos dois statements públicos legados. Não deve atualizar `aws_lambda_function.cpf_validator` nem remover a permissão nativa do API Gateway. O plano é aprovado separadamente antes do Apply; não recrie a URL ou permissões públicas.
 
-O pacote `lambda.zip` sincronizado localmente corresponde byte a byte ao código implantado. `handler.py` contém uma variante local diferente; a diferença está documentada no checkpoint de migração. O pipeline que fecha a URL recupera e valida o `CodeSha256` do pacote implantado, evitando publicar a variante local durante essa operação. Atualizações de código devem ser planejadas separadamente.
+O checkpoint registra que, em 13/10/2026, `lambda.zip` e `handler.py` foram sincronizados com o pacote implantado, sem publicar atualização da função. Essa é uma evidência registrada naquela data, não uma verificação do artefato AWS atual. Alterações de código devem ser planejadas separadamente e não inferidas do workflow de Terraform.
 
 ## Pipeline e validação
 
-O workflow executa testes e validação Terraform. O fechamento da URL é manual, exclusivo de homologação, exige a variável de aprovação `API_GATEWAY_HOMOLOGATED` e valida que o plano contém somente a mudança para `AWS_IAM` e a remoção das duas permissões públicas. Durante esse fechamento, o pipeline usa o pacote implantado; o apply permanece condicionado à aprovação explícita do plano.
+Consulte o [catálogo de variables e secrets](docs/variables-and-secrets.md) e o [histórico](docs/variables-changelog.md) para configuração do GitHub Actions, Terraform e runtime.
+
+CI executa automaticamente em Pull Requests e pushes para `develop` e `main`, com testes Python, auditoria de dependências e validação Terraform; esses eventos não aplicam infraestrutura. O CD é iniciado somente por `workflow_dispatch` em `develop`, usa o Environment `homolog` e executa plan, validação de conta/state e gate de destruições. O Apply requer input `deploy`, `TERRAFORM_APPLY_APPROVAL_CONFIGURED=true` e `allow_destructive=true` quando houver exclusões/substituições. Esse flag exige Required reviewers, mas não prova que estejam configurados no GitHub; a configuração real e execuções do workflow não foram verificadas. Não há CD de produção declarado.
+
+Secrets referenciados pelo workflow: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` e `JWT_SECRET`. Variables incluem `AWS_REGION`, `AWS_EXPECTED_ACCOUNT_ID`, `AWS_TERRAFORM_STATE_BUCKET`, `AWS_TF_STATE_KEY`, `AWS_INFRA_STATE_KEY`, `AWS_RDS_STATE_KEY` e `AWS_LAMBDA_EXECUTION_ROLE_ARN`, além de `TERRAFORM_APPLY_APPROVAL_CONFIGURED`. Configure nomes/valores no GitHub Environment apropriado; não copie valores sensíveis para documentação.
 
 ```bash
 python -m pip install -r requirements.txt
