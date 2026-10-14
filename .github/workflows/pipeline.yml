@@ -14,9 +14,9 @@ on:
   push:
     branches: ["develop", "main"]
 
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: ["develop", "main"]
+permissions:
+  contents: write
+  pull-requests: write
 
 permissions:
   contents: read
