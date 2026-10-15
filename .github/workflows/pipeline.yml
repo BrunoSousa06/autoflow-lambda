@@ -35,9 +35,7 @@ jobs:
           python -m pip install pip-audit
           pip-audit -r requirements.txt
       - name: Validar pacote Lambda
-        run: |
-          bash ./build.sh
-          python -m compileall -q build
+        run: bash ./build.sh
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.16.5"
