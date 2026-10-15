@@ -93,3 +93,43 @@ variable "rds_state_key" {
   type        = string
   default     = "rds/terraform.tfstate"
 }
+
+variable "lambda_package_bucket" {
+  description = "Bucket S3 existente que armazena os pacotes imutáveis da Lambda."
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.lambda_package_bucket)) > 0
+    error_message = "lambda_package_bucket deve identificar um bucket S3 existente."
+  }
+}
+
+variable "lambda_package_key" {
+  description = "Chave S3 isolada do pacote, contendo o SHA-256 hexadecimal no nome."
+  type        = string
+
+  validation {
+    condition     = can(regex("^lambda-packages/sha256/[0-9a-f]{64}\\.zip$", var.lambda_package_key))
+    error_message = "lambda_package_key deve usar lambda-packages/sha256/<sha256-hex>.zip."
+  }
+}
+
+variable "lambda_package_source_code_hash" {
+  description = "SHA-256 binário do pacote, codificado em Base64 como exige o AWS provider."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9+/]{43}=$", var.lambda_package_source_code_hash))
+    error_message = "lambda_package_source_code_hash deve ser um SHA-256 válido em Base64."
+  }
+}
+
+variable "lambda_package_version" {
+  description = "VersionId do objeto S3 publicado e aprovado no Plan."
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.lambda_package_version)) > 0 && var.lambda_package_version != "null"
+    error_message = "lambda_package_version deve ser um VersionId S3 não nulo."
+  }
+}
