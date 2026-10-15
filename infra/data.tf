@@ -2,9 +2,10 @@ data "terraform_remote_state" "infra" {
   backend = "s3"
 
   config = {
-    bucket = "state-autoflow-terraform"
-    key    = "infra/terraform.tfstate"
-    region = var.region
+    bucket  = var.terraform_state_bucket
+    key     = var.infra_state_key
+    region  = var.region
+    profile = var.aws_profile
   }
 }
 
@@ -12,27 +13,9 @@ data "terraform_remote_state" "db" {
   backend = "s3"
 
   config = {
-    bucket = "state-autoflow-terraform"
-    key    = "rds/terraform.tfstate"
-    region = var.region
-  }
-}
-
-data "archive_file" "lambda" {
-  depends_on  = [null_resource.lambda_dependencies]
-  type        = "zip"
-  source_dir  = "${path.module}/../build"
-  output_path = "${path.module}/../lambda.zip"
-}
-
-resource "null_resource" "lambda_dependencies" {
-  triggers = {
-    requirements = filemd5("${path.module}/../requirements.txt")
-    handler      = filemd5("${path.module}/../handler.py")
-  }
-
-  provisioner "local-exec" {
-    command     = "bash ${path.module}/../build.sh"
-    working_dir = path.module
+    bucket  = var.terraform_state_bucket
+    key     = var.rds_state_key
+    region  = var.region
+    profile = var.aws_profile
   }
 }

@@ -1,0 +1,46 @@
+import unittest
+
+from review_lambda_plan import review_plan
+
+
+def change(address, actions, before=None, after=None):
+    return {"address": address, "change": {"actions": actions, "before": before, "after": after}}
+
+
+class ReviewLambdaPlanTests(unittest.TestCase):
+    def test_allows_plan_without_changes(self):
+        self.assertEqual(review_plan({"resource_changes": []}), [])
+
+    def test_allows_noop_and_regular_update_without_identity_change(self):
+        plan = {"resource_changes": [
+            change("aws_lambda_function.cpf_validator", ["update"], {"function_name": "autoflow-cpf-validator-homolog", "runtime": "python3.12"}, {"function_name": "autoflow-cpf-validator-homolog", "runtime": "python3.12"}),
+            change("aws_security_group_rule.example", ["no-op"]),
+        ]}
+        self.assertEqual(review_plan(plan), [])
+
+    def test_blocks_delete_and_replacement(self):
+        for actions in (["delete"], ["delete", "create"], ["create", "delete"]):
+            with self.subTest(actions=actions):
+                findings = review_plan({"resource_changes": [change("aws_lambda_function.cpf_validator", actions)]})
+                self.assertTrue(any("destrutiva/replacement" in item for item in findings))
+                if "create" in actions:
+                    self.assertTrue(any("recriação" in item for item in findings))
+
+    def test_blocks_lambda_identity_changes(self):
+        for field in ("function_name", "package_type", "handler", "runtime"):
+            with self.subTest(field=field):
+                findings = review_plan({"resource_changes": [change(
+                    "aws_lambda_function.cpf_validator", ["update"], {field: "anterior"}, {field: "novo"}
+                )]})
+                self.assertTrue(any(field in item and "identidade" in item for item in findings))
+
+    def test_blocks_unexpected_creation_of_managed_lambda(self):
+        findings = review_plan({"resource_changes": [change("aws_lambda_function.cpf_validator", ["create"])]})
+        self.assertTrue(any("recriação" in item for item in findings))
+
+    def test_allows_create_of_other_resource(self):
+        self.assertEqual(review_plan({"resource_changes": [change("aws_iam_role.example", ["create"])]}), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

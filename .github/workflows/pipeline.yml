@@ -2,70 +2,221 @@ name: Lambda Pipeline
 
 on:
   push:
-    branches: ["develop", "main"]
+    branches: [develop, main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [develop, main]
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+
+concurrency:
+  group: autoflow-lambda-homolog-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  terraform:
-    name: Deploy Lambda with Terraform
+  checks:
+    name: CI Lambda e Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependências
+        run: python -m pip install -r requirements.txt
+      - name: Testes Python e guards
+        run: |
+          python -m unittest test_handler test_http_api -v
+          python -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Auditar dependências
+        run: |
+          python -m pip install pip-audit
+          pip-audit -r requirements.txt
+      - name: Validar pacote Lambda
+        run: bash ./build.sh
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.5"
+          terraform_wrapper: false
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive infra
+      - name: Terraform init sem backend
+        run: terraform -chdir=infra init -backend=false -input=false
+      - name: Terraform validate
+        run: terraform -chdir=infra validate
+
+  plan:
+    name: Terraform Plan homolog
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: checks
     runs-on: ubuntu-latest
     env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_EXPECTED_ACCOUNT_ID: ${{ vars.AWS_EXPECTED_ACCOUNT_ID }}
+      TF_STATE_BUCKET: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
+      TF_STATE_KEY: ${{ vars.AWS_TF_STATE_KEY }}
+      TF_VAR_aws_allowed_account_ids: '["${{ vars.AWS_EXPECTED_ACCOUNT_ID }}"]'
+      TF_VAR_region: ${{ vars.AWS_REGION }}
+      TF_VAR_environment: homolog
+      TF_VAR_role_arn: ${{ vars.AWS_LAMBDA_EXECUTION_ROLE_ARN }}
+      TF_VAR_terraform_state_bucket: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
+      TF_VAR_infra_state_key: ${{ vars.AWS_INFRA_STATE_KEY }}
+      TF_VAR_rds_state_key: ${{ vars.AWS_RDS_STATE_KEY }}
       TF_VAR_db_username: ${{ secrets.DATABASE_USERNAME }}
       TF_VAR_db_password: ${{ secrets.DATABASE_PASSWORD }}
       TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Exigir credenciais temporárias e configuração homolog
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" && test -n "$AWS_SESSION_TOKEN"
+          [[ "$AWS_REGION" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]
+          test "$AWS_REGION" = us-east-1
+          test "$AWS_EXPECTED_ACCOUNT_ID" = 108798852045
+          test "$TF_STATE_BUCKET" = autoflow-tfstate-learnerlab-108798852045-us-east-1
+          test "$TF_STATE_KEY" = lambda/terraform.tfstate
+          test "${{ vars.AWS_INFRA_STATE_KEY }}" = eks/terraform.tfstate
+          test "${{ vars.AWS_RDS_STATE_KEY }}" = rds/terraform.tfstate
+          test -n "$TF_VAR_role_arn"
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: us-east-1
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init
-        working-directory: ./infra
-        run: terraform init
-
-      - name: Terraform Validate
-        working-directory: ./infra
-        run: terraform validate
-
-      - name: Terraform Plan
-        working-directory: ./infra
-        run: terraform plan
-
-      - name: Terraform Apply
-        working-directory: ./infra
-        run: terraform apply -auto-approve
-
-  create-pr:
-    name: Create PR to main
-    needs: terraform
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Create Pull Request
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Validar conta AWS
         run: |
-          gh pr create \
-            --base main \
-            --head develop \
-            --title "Criação de PR automatico para main" \
-            --body "Um Pull request automatico foi criado para a branch main após o deploy bem-sucedido do Terraform." \
-            || echo "PR ja existe e não sera criado."
+          test "$(aws sts get-caller-identity --query Account --output text)" = "$AWS_EXPECTED_ACCOUNT_ID"
+      - name: Validar região e states remotos existentes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(aws ec2 describe-availability-zones --region "$AWS_REGION" --query 'AvailabilityZones[0].RegionName' --output text)" = "$AWS_REGION"
+          aws s3api head-bucket --bucket "$TF_STATE_BUCKET"
+          for key in "$TF_STATE_KEY" "$TF_VAR_infra_state_key" "$TF_VAR_rds_state_key"; do
+            aws s3api head-object --bucket "$TF_STATE_BUCKET" --key "$key" >/dev/null
+          done
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.5"
+          terraform_wrapper: false
+      - name: Construir pacote Lambda para o plan
+        run: bash ./build.sh
+      - name: Inicializar state remoto existente
+        working-directory: infra
+        run: terraform init -input=false -reconfigure -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="key=$TF_STATE_KEY" -backend-config="region=$AWS_REGION" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Terraform validate
+        working-directory: infra
+        run: terraform validate
+      - name: Gerar plan confidencial
+        working-directory: infra
+        run: terraform plan -input=false -no-color -out=lambda.tfplan > /dev/null 2>&1
+      - name: Guard de identidade e ações destrutivas
+        working-directory: infra
+        run: |
+          terraform show -json lambda.tfplan > lambda-plan.json
+          python ../scripts/review_lambda_plan.py lambda-plan.json
+      - name: Calcular SHA-256 do plano
+        working-directory: infra
+        run: sha256sum lambda.tfplan > lambda.tfplan.sha256
+      - name: Armazenar plan confidencial desta execução
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-tfplan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            infra/lambda.tfplan
+            infra/lambda.tfplan.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  apply:
+    name: Terraform Apply homolog (aprovação requerida)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: homolog
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_EXPECTED_ACCOUNT_ID: ${{ vars.AWS_EXPECTED_ACCOUNT_ID }}
+      TF_STATE_BUCKET: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
+      TF_STATE_KEY: ${{ vars.AWS_TF_STATE_KEY }}
+      TF_VAR_aws_allowed_account_ids: '["${{ vars.AWS_EXPECTED_ACCOUNT_ID }}"]'
+      TF_VAR_region: ${{ vars.AWS_REGION }}
+      TF_VAR_environment: homolog
+      TF_VAR_role_arn: ${{ vars.AWS_LAMBDA_EXECUTION_ROLE_ARN }}
+      TF_VAR_terraform_state_bucket: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
+      TF_VAR_infra_state_key: ${{ vars.AWS_INFRA_STATE_KEY }}
+      TF_VAR_rds_state_key: ${{ vars.AWS_RDS_STATE_KEY }}
+      TF_VAR_db_username: ${{ secrets.DATABASE_USERNAME }}
+      TF_VAR_db_password: ${{ secrets.DATABASE_PASSWORD }}
+      TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Exigir sinalização de aprovação configurada
+        env:
+          APPROVAL_CONFIGURED: ${{ vars.TERRAFORM_APPLY_APPROVAL_CONFIGURED }}
+        run: |
+          test "$APPROVAL_CONFIGURED" = true || { echo "Apply bloqueado: configure Required reviewers no Environment homolog e TERRAFORM_APPLY_APPROVAL_CONFIGURED=true." >&2; exit 1; }
+      - name: Exigir credenciais temporárias
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" && test -n "$AWS_SESSION_TOKEN"
+          test "$AWS_REGION" = us-east-1
+          test "$AWS_EXPECTED_ACCOUNT_ID" = 108798852045
+          test "$TF_STATE_BUCKET" = autoflow-tfstate-learnerlab-108798852045-us-east-1
+          test "$TF_STATE_KEY" = lambda/terraform.tfstate
+          test "$TF_VAR_infra_state_key" = eks/terraform.tfstate
+          test "$TF_VAR_rds_state_key" = rds/terraform.tfstate
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Revalidar conta e states remotos
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(aws sts get-caller-identity --query Account --output text)" = "$AWS_EXPECTED_ACCOUNT_ID"
+          test "$(aws ec2 describe-availability-zones --region "$AWS_REGION" --query 'AvailabilityZones[0].RegionName' --output text)" = "$AWS_REGION"
+          aws s3api head-bucket --bucket "$TF_STATE_BUCKET"
+          for key in "$TF_STATE_KEY" "$TF_VAR_infra_state_key" "$TF_VAR_rds_state_key"; do aws s3api head-object --bucket "$TF_STATE_BUCKET" --key "$key" >/dev/null; done
+      - uses: actions/download-artifact@v4
+        with:
+          name: lambda-tfplan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: infra
+      - name: Verificar integridade SHA-256
+        working-directory: infra
+        run: sha256sum --check lambda.tfplan.sha256
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.5"
+          terraform_wrapper: false
+      - name: Inicializar state remoto existente
+        working-directory: infra
+        run: terraform init -input=false -reconfigure -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="key=$TF_STATE_KEY" -backend-config="region=$AWS_REGION" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Revalidar identidade e guard do plano
+        working-directory: infra
+        run: |
+          terraform show -json lambda.tfplan > lambda-plan.json
+          python ../scripts/review_lambda_plan.py lambda-plan.json
+      - name: Aplicar exatamente o plano revisado
+        working-directory: infra
+        run: terraform apply -input=false lambda.tfplan

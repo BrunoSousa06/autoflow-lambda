@@ -35,6 +35,41 @@ def _document_digits(document):
     return re.sub(r"\D", "", str(document or ""))
 
 
+def _is_valid_cpf(cpf):
+    if len(cpf) != 11 or len(set(cpf)) == 1:
+        return False
+
+    first_digit = _calculate_document_digit(cpf[:9], range(10, 1, -1))
+    second_digit = _calculate_document_digit(cpf[:10], range(11, 1, -1))
+    return cpf[-2:] == f"{first_digit}{second_digit}"
+
+
+def _is_valid_cnpj(cnpj):
+    if len(cnpj) != 14 or len(set(cnpj)) == 1:
+        return False
+
+    first_digit = _calculate_document_digit(
+        cnpj[:12], [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    )
+    second_digit = _calculate_document_digit(
+        cnpj[:13], [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    )
+    return cnpj[-2:] == f"{first_digit}{second_digit}"
+
+
+def _calculate_document_digit(document, weights):
+    total = sum(
+        int(digit) * weight
+        for digit, weight in zip(document, weights)
+    )
+    remainder = total % 11
+    return 0 if remainder < 2 else 11 - remainder
+
+
+def _is_valid_document(document):
+    return _is_valid_cpf(document) or _is_valid_cnpj(document)
+
+
 def _get_connection():
     return psycopg2.connect(
         host=os.environ["DB_HOST"],
@@ -56,10 +91,15 @@ def _find_user_by_document(cpf_cnpj):
                 SELECT
                     u.id,
                     u.cpf_cnpj,
+                    u.email,
                     u.senha,
-                    u.role
+                    u.role,
+                    c.status
                 FROM usuarios u
-                WHERE u.cpf_cnpj = %s
+                LEFT JOIN clientes c
+                    ON regexp_replace(c.cpf_cnpj, '[^0-9]', '', 'g') =
+                       regexp_replace(u.cpf_cnpj, '[^0-9]', '', 'g')
+                WHERE regexp_replace(u.cpf_cnpj, '[^0-9]', '', 'g') = %s
                 """,
                 (cpf_cnpj,),
             )
@@ -71,9 +111,11 @@ def _find_user_by_document(cpf_cnpj):
 
             return {
                 "usuario_id": row[0],
-                "cpf_cnpj": row[1],
-                "senha": row[2],
-                "role": row[3],
+                "cpf_cnpj": _document_digits(row[1]),
+                "email": row[2],
+                "senha": row[3],
+                "role": row[4],
+                "cliente_status": row[5],
             }
 
     finally:
@@ -107,6 +149,9 @@ def _generate_token(user):
         "exp": now + timedelta(seconds=expires_in),
     }
 
+    if user.get("email"):
+        payload["email"] = user["email"]
+
     token = jwt.encode(
         payload,
         os.environ["JWT_SECRET"],
@@ -114,6 +159,13 @@ def _generate_token(user):
     )
 
     return token, expires_in
+
+
+def _is_active_client(user):
+    if user["role"] != "CLIENTE":
+        return True
+
+    return user.get("cliente_status") == "ATIVO"
 
 
 def lambda_handler(event, context):
@@ -143,8 +195,7 @@ def lambda_handler(event, context):
             },
         )
 
-    # CPF ou CNPJ
-    if len(cpf_cnpj) not in (11, 14):
+    if not _is_valid_document(cpf_cnpj):
         return _response(
             400,
             {
@@ -183,6 +234,14 @@ def lambda_handler(event, context):
                 },
             )
 
+        if not _is_active_client(user):
+            return _response(
+                401,
+                {
+                    "message": "CPF/CNPJ ou senha invÃ¡lidos."
+                },
+            )
+
         token, expires_in = _generate_token(user)
 
         return _response(
@@ -194,9 +253,9 @@ def lambda_handler(event, context):
             },
         )
 
-    except psycopg2.Error as e:
+    except psycopg2.Error as error:
 
-        print("ERRO POSTGRES:", repr(e))
+        print("ERRO POSTGRES:", type(error).__name__)
 
         return _response(
             500,
@@ -205,9 +264,9 @@ def lambda_handler(event, context):
             },
         )
 
-    except Exception as e:
+    except Exception as error:
 
-        print("ERRO INESPERADO:", repr(e))
+        print("ERRO INESPERADO:", type(error).__name__)
 
         return _response(
             500,
