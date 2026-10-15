@@ -131,6 +131,8 @@ jobs:
         run: |
           sha256sum lambda.tfplan > lambda.tfplan.sha256
           printf '%s\n' "$GITHUB_SHA" > lambda.tfplan.commit
+      - name: Calcular SHA-256 do pacote Lambda
+        run: sha256sum lambda.zip > lambda.zip.sha256
       - name: Armazenar plan confidencial desta execução
         uses: actions/upload-artifact@v4
         with:
@@ -139,6 +141,8 @@ jobs:
             infra/lambda.tfplan
             infra/lambda.tfplan.sha256
             infra/lambda.tfplan.commit
+            lambda.zip
+            lambda.zip.sha256
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -205,7 +209,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: lambda-tfplan-${{ github.run_id }}
-          path: infra
+          path: .
+      - name: Verificar integridade do pacote Lambda
+        run: sha256sum --check lambda.zip.sha256
       - name: Confirmar commit de origem do plano
         working-directory: infra
         run: test "$(cat lambda.tfplan.commit)" = "$GITHUB_SHA"
