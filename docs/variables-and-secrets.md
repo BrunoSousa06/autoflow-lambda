@@ -1,26 +1,26 @@
 # Variables e secrets
 
-Catálogo observado no workflow, Terraform e runtime da função. O deploy configurado é somente `homolog`; produção é planejada para outra branch. CI em push/PR não exige secrets nem variables GitHub. O job Terraform usa Environment `homolog`; existência e proteções reais não foram verificadas.
+Catálogo necessário para o workflow versionado. CI em PR/push roda sem AWS credentials; o plan automático não entra no Environment para não aguardar aprovação. Portanto, configure as variables e secrets AWS/runtime como configurações do repositório (disponíveis nos jobs), ou use secrets/variables de organização acessíveis ao repositório. O job Apply entra no Environment `homolog`, que deve ter Required reviewers configurados. A aprovação nativa é a barreira do job `environment: homolog`; a variable de aprovação abaixo é somente um guard adicional.
 
 ## GitHub Actions — Secrets
 
 | Nome | Tipo / finalidade | Onde configurar; origem | CI / CD | Exemplo seguro | Consumidor; default/ausência |
 |---|---|---|---|---|---|
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | Secrets; credenciais temporárias da mesma sessão AWS | Environment `homolog`; sessão AWS Academy Learner Lab | CD | Não aplicável | `.github/workflows/pipeline.yml`; obrigatórios no job AWS, sem defaults. |
-| `DATABASE_USERNAME`, `DATABASE_PASSWORD` | Secrets; credenciais de conexão DB Lambda | Environment `homolog`; credenciais do usuário de homolog | CD/runtime | Não aplicável | Workflow → `TF_VAR_db_username/password` → Lambda; sem defaults, sensíveis. |
-| `JWT_SECRET` | Secret; chave HS256 de assinatura JWT | Environment `homolog`; segredo compatível com backend | CD/runtime | Não aplicável | Workflow → `TF_VAR_jwt_secret`; obrigatório, sem default; Terraform valida mínimo de 32 caracteres. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | Secrets; credenciais temporárias da mesma sessão AWS | Repository secrets (ou organização acessível ao repositório); sessão AWS Academy Learner Lab | Plan e Apply | Não aplicável | `.github/workflows/pipeline.yml`; obrigatórios e usados em `configure-aws-credentials`. |
+| `DATABASE_USERNAME`, `DATABASE_PASSWORD` | Secrets; credenciais de conexão DB Lambda | Repository secrets (ou organização acessível ao repositório); credenciais do usuário de homolog | Plan e Apply/runtime | Não aplicável | Workflow → `TF_VAR_db_username/password` → Lambda; sem defaults, sensíveis. |
+| `JWT_SECRET` | Secret; chave HS256 de assinatura JWT | Repository secret (ou organização acessível ao repositório); segredo compatível com backend | Plan e Apply/runtime | Não aplicável | Workflow → `TF_VAR_jwt_secret`; obrigatório, sem default; Terraform valida mínimo de 32 caracteres. |
 
 ## GitHub Actions — Variables
 
 | Nome | Finalidade | Onde; origem | CI / CD | Exemplo seguro | Consumidor; default/ausência |
 |---|---|---|---|---|---|
-| `AWS_REGION` | Região AWS | Environment `homolog` | CD | `us-east-1` | Workflow/provider/backend; obrigatória, sem default efetivo no job. |
-| `AWS_EXPECTED_ACCOUNT_ID` | Conta esperada pelo guard | Environment `homolog` | CD | `123456789012` | Workflow/scripts; obrigatória. |
-| `AWS_TERRAFORM_STATE_BUCKET` | Bucket state Terraform | Environment `homolog` | CD | `autoflow-tfstate-homolog-exemplo` | Workflow/backend/input; obrigatório, apesar de Terraform declarar default local. |
-| `AWS_TF_STATE_KEY` | Key state próprio Lambda | Environment `homolog` | CD | `homolog/lambda/terraform.tfstate` | Backend do workflow; obrigatória, sem default no workflow. |
-| `AWS_INFRA_STATE_KEY`, `AWS_RDS_STATE_KEY` | Keys remotas VPC/EKS e RDS | Environment `homolog` | CD | `homolog/infra/terraform.tfstate`; `homolog/rds/terraform.tfstate` | Workflow checa existência; Terraform usa data sources; sem defaults efetivos de workflow. |
-| `AWS_LAMBDA_EXECUTION_ROLE_ARN` | Role de execução Lambda | Environment `homolog`; ARN aprovado | CD | `arn:aws:iam::123456789012:role/exemplo-lambda` | Workflow → `TF_VAR_role_arn`; Terraform permite null localmente, mas workflow valida não vazio. |
-| `TERRAFORM_APPLY_APPROVAL_CONFIGURED` | Guard adicional Apply | Environment `homolog`; `true` após required reviewers | CD quando `deploy=true` | `true` | Workflow; ausente/diferente bloqueia Apply; não substitui required reviewers. |
+| `AWS_REGION` | Região AWS | Repository variable | Plan e Apply | `us-east-1` | Workflow/provider/backend; validada contra a região esperada. |
+| `AWS_EXPECTED_ACCOUNT_ID` | Conta esperada pelo guard | Repository variable | Plan e Apply | `108798852045` | Workflow compara com `sts get-caller-identity`. |
+| `AWS_TERRAFORM_STATE_BUCKET` | Bucket de states Terraform existente | Repository variable | Plan e Apply | `autoflow-tfstate-learnerlab-108798852045-us-east-1` | Workflow/backend; validado e usado sem criar bucket. |
+| `AWS_TF_STATE_KEY` | Key state próprio Lambda | Repository variable | Plan e Apply | `lambda/terraform.tfstate` | Backend do workflow; validada e preservada. |
+| `AWS_INFRA_STATE_KEY`, `AWS_RDS_STATE_KEY` | Keys remotas EKS e RDS | Repository variables | Plan e Apply | `eks/terraform.tfstate`; `rds/terraform.tfstate` | Workflow valida objetos e Terraform lê data sources; preservadas. |
+| `AWS_LAMBDA_EXECUTION_ROLE_ARN` | Role de execução Lambda | Repository variable; ARN aprovado | Plan e Apply | `arn:aws:iam::108798852045:role/<role-existente>` | Workflow → `TF_VAR_role_arn`; valida não vazio. |
+| `TERRAFORM_APPLY_APPROVAL_CONFIGURED` | Guard operacional adicional | Environment variable `homolog`; `true` somente após configurar Required reviewers | Apply | `true` | Ausente/diferente bloqueia Apply; não substitui a proteção nativa do Environment. |
 
 ## Terraform inputs — `infra/variables.tf`
 
@@ -48,7 +48,7 @@ Catálogo observado no workflow, Terraform e runtime da função. O deploy confi
 | `DB_USERNAME`, `DB_PASSWORD` | Variáveis de aplicação; autenticação DB | Runtime derivado do Secret; local via ambiente seguro | CI não; CD/runtime | Não aplicável | `handler.py`; obrigatórias. GitHub usa `DATABASE_USERNAME/PASSWORD`, Terraform recebe `db_username/password` e configuração Lambda usa nomes `DB_*`. |
 | `JWT_SECRET`, `JWT_EXPIRES_IN_SECONDS` | Variáveis de aplicação; assinatura e duração JWT | Runtime Lambda/local seguro | CI não; CD/runtime | Não aplicável; `3600` | `handler.py`; segredo obrigatório, duração default `3600`; alinhamento de segredo com backend necessário. |
 
-`pipeline.yml` inputs `deploy` e `allow_destructive` têm default `false`. O job de plan só roda em `workflow_dispatch` na branch `develop`; não se documenta produção como deploy implementado. O zip/package é construído no CI, sem valores de deploy.
+`pipeline.yml` executa CI em PRs para `develop`/`main` e pushes nessas branches. Push em `develop` executa CI → Plan; Apply usa o plano da mesma execução, espera aprovação manual do Environment `homolog`, valida SHA-256 e repete o guard. O artifact é confidencial e retido por um dia. Nenhum bucket/state é criado ou migrado; não há Apply em PR nem deploy de produção.
 
 **Divergências:** os secrets `DATABASE_USERNAME/PASSWORD` são mapeados para Terraform `db_username/password`, mas o runtime Lambda lê `DB_USERNAME/PASSWORD`. Terraform `environment` aceita `production`, enquanto o workflow fixa `homolog`; essa aceitação no código não habilita deploy de produção. Terraform `terraform_state_bucket` tem default, mas o workflow exige variável explícita. O backend API Gateway correspondente configura Lambda no repositório `autoflow-infra` (`AWS_LAMBDA_FUNCTION_NAME`).
 
