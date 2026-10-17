@@ -59,7 +59,7 @@ jobs:
       TF_STATE_BUCKET: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
       TF_STATE_KEY: ${{ vars.AWS_TF_STATE_KEY }}
       AWS_LAMBDA_PACKAGE_BUCKET: ${{ vars.AWS_LAMBDA_PACKAGE_BUCKET }}
-      AWS_LAMBDA_FUNCTION_NAME: ${{ vars.AWS_LAMBDA_FUNCTION_NAME }}
+      AWS_LAMBDA_FUNCTION_NAME: ${{ vars.AWS_LAMBDA_FUNCTION_NAME || 'autoflow-cpf-validator-homolog' }}
       TF_VAR_aws_allowed_account_ids: '["${{ vars.AWS_EXPECTED_ACCOUNT_ID }}"]'
       TF_VAR_region: ${{ vars.AWS_REGION }}
       TF_VAR_environment: homolog
@@ -89,6 +89,7 @@ jobs:
           test -n "$TF_STATE_BUCKET"
           test "$TF_STATE_KEY" = lambda/terraform.tfstate
           test -n "$AWS_LAMBDA_PACKAGE_BUCKET"
+          test -n "$AWS_LAMBDA_FUNCTION_NAME"
           test "$AWS_LAMBDA_PACKAGE_BUCKET" = "$TF_STATE_BUCKET"
           test "${{ vars.AWS_INFRA_STATE_KEY }}" = eks/terraform.tfstate
           test "${{ vars.AWS_RDS_STATE_KEY }}" = rds/terraform.tfstate
@@ -182,7 +183,7 @@ jobs:
       TF_STATE_BUCKET: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
       TF_STATE_KEY: ${{ vars.AWS_TF_STATE_KEY }}
       AWS_LAMBDA_PACKAGE_BUCKET: ${{ vars.AWS_LAMBDA_PACKAGE_BUCKET }}
-      AWS_LAMBDA_FUNCTION_NAME: ${{ vars.AWS_LAMBDA_FUNCTION_NAME }}
+      AWS_LAMBDA_FUNCTION_NAME: ${{ vars.AWS_LAMBDA_FUNCTION_NAME || 'autoflow-cpf-validator-homolog' }}
       TF_VAR_aws_allowed_account_ids: '["${{ vars.AWS_EXPECTED_ACCOUNT_ID }}"]'
       TF_VAR_region: ${{ vars.AWS_REGION }}
       TF_VAR_environment: homolog

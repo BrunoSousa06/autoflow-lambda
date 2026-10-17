@@ -18,6 +18,7 @@ class ReviewLambdaPlanTests(unittest.TestCase):
         self.assertIn("environment: homolog", apply)
         self.assertIn("required_reviewers", apply)
         self.assertIn("TERRAFORM_APPLY_APPROVAL_CONFIGURED", apply)
+        self.assertEqual(workflow.count("vars.AWS_LAMBDA_FUNCTION_NAME || 'autoflow-cpf-validator-homolog'"), 2)
 
     def test_allows_plan_without_changes(self):
         self.assertEqual(review_plan({"resource_changes": []}), [])
