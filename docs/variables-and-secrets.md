@@ -15,12 +15,12 @@ Catálogo necessário para o workflow versionado. CI em PR/push roda sem AWS cre
 | Nome | Finalidade | Onde; origem | CI / CD | Exemplo seguro | Consumidor; default/ausência |
 |---|---|---|---|---|---|
 | `AWS_REGION` | Região AWS | Repository variable | Plan e Apply | `us-east-1` | Workflow/provider/backend; validada contra a região esperada. |
-| `AWS_EXPECTED_ACCOUNT_ID` | Conta esperada pelo guard | Repository variable | Plan e Apply | `108798852045` | Workflow compara com `sts get-caller-identity`. |
-| `AWS_TERRAFORM_STATE_BUCKET` | Bucket de states Terraform existente | Repository variable | Plan e Apply | `autoflow-tfstate-learnerlab-108798852045-us-east-1` | Workflow/backend; validado e usado sem criar bucket. |
-| `AWS_LAMBDA_PACKAGE_BUCKET` | Bucket existente para os pacotes ZIP imutáveis | Repository variable; configure com o bucket de state atual | Plan e Apply | `autoflow-tfstate-learnerlab-108798852045-us-east-1` | `lambda_package_bucket`; o workflow exige igualdade com `AWS_TERRAFORM_STATE_BUCKET`, região compatível e Versioning habilitado. |
+| `AWS_EXPECTED_ACCOUNT_ID` | Conta esperada pelo guard | Repository variable | Plan e Apply | Identificador AWS de 12 dígitos da conta aprovada | Workflow compara com `sts get-caller-identity`. |
+| `AWS_TERRAFORM_STATE_BUCKET` | Bucket de states Terraform | Repository variable | Plan e Apply | Nome exclusivo configurado para a conta/região | Workflow/backend; bootstrap separado e explicitamente aprovado quando ausente. |
+| `AWS_LAMBDA_PACKAGE_BUCKET` | Bucket para os pacotes ZIP imutáveis | Repository variable; configure conforme o bucket existente | Plan e Apply | Nome do bucket configurado | `lambda_package_bucket`; requer região compatível e Versioning habilitado. |
 | `AWS_TF_STATE_KEY` | Key state próprio Lambda | Repository variable | Plan e Apply | `lambda/terraform.tfstate` | Backend do workflow; validada e preservada. |
 | `AWS_INFRA_STATE_KEY`, `AWS_RDS_STATE_KEY` | Keys remotas EKS e RDS | Repository variables | Plan e Apply | `eks/terraform.tfstate`; `rds/terraform.tfstate` | Workflow valida objetos e Terraform lê data sources; preservadas. |
-| `AWS_LAMBDA_EXECUTION_ROLE_ARN` | Role de execução Lambda | Repository variable; ARN aprovado | Plan e Apply | `arn:aws:iam::108798852045:role/<role-existente>` | Workflow → `TF_VAR_role_arn`; valida não vazio. |
+| `AWS_LAMBDA_EXECUTION_ROLE_ARN` | Role de execução Lambda | Repository variable; ARN aprovado | Plan e Apply | ARN da role aprovada na conta configurada | Workflow → `TF_VAR_role_arn`; valida não vazio. |
 | `TERRAFORM_APPLY_APPROVAL_CONFIGURED` | Guard operacional adicional | Environment variable `homolog`; `true` somente após configurar Required reviewers | Apply | `true` | Ausente/diferente bloqueia Apply; não substitui a proteção nativa do Environment. |
 
 ## Terraform inputs — `infra/variables.tf`

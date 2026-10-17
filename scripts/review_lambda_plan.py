@@ -19,8 +19,6 @@ def review_plan(plan: dict) -> list[str]:
 
         if "delete" in actions:
             diagnostics.append(f"Ação destrutiva/replacement detectada em {address}; plan bloqueado.")
-        if address == LAMBDA_ADDRESS and "create" in actions:
-            diagnostics.append("Criação da Lambda gerenciada detectada; recriação da função existente bloqueada.")
         if address == LAMBDA_ADDRESS:
             for field in IDENTITY_FIELDS:
                 if before.get(field) != after.get(field) and (field in before or field in after):
