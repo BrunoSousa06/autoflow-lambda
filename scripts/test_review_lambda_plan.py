@@ -45,7 +45,15 @@ class ReviewLambdaPlanTests(unittest.TestCase):
                 self.assertTrue(any(field in item and "identidade" in item for item in findings))
 
     def test_allows_initial_creation_when_function_is_absent(self):
-        self.assertEqual(review_plan({"resource_changes": [change("aws_lambda_function.cpf_validator", ["create"])]}), [])
+        initial_function = {
+            "function_name": "autoflow-cpf-validator-homolog",
+            "package_type": "Zip",
+            "handler": "handler.lambda_handler",
+            "runtime": "python3.12",
+        }
+        self.assertEqual(review_plan({"resource_changes": [change(
+            "aws_lambda_function.cpf_validator", ["create"], before=None, after=initial_function
+        )]}), [])
 
     def test_allows_create_of_other_resource(self):
         self.assertEqual(review_plan({"resource_changes": [change("aws_iam_role.example", ["create"])]}), [])
