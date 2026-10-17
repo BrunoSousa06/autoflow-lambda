@@ -20,6 +20,10 @@ def review_plan(plan: dict) -> list[str]:
         if "delete" in actions:
             diagnostics.append(f"Ação destrutiva/replacement detectada em {address}; plan bloqueado.")
         if address == LAMBDA_ADDRESS:
+            # Os atributos aparecem apenas em `after` na criação inicial;
+            # isso não representa alteração de identidade de recurso existente.
+            if actions == ["create"] and not before:
+                continue
             for field in IDENTITY_FIELDS:
                 if before.get(field) != after.get(field) and (field in before or field in after):
                     diagnostics.append(f"Mudança de identidade da Lambda ({field}) detectada; plan bloqueado.")
