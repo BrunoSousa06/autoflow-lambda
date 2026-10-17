@@ -17,8 +17,8 @@ from lambda_package_s3 import (
 )
 
 
-BUCKET = "autoflow-tfstate-learnerlab-108798852045-us-east-1"
-OWNER = "108798852045"
+BUCKET = "autoflow-tfstate-test-example"
+OWNER = "123456789012"
 REGION = "us-east-1"
 
 

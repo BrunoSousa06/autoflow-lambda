@@ -58,6 +58,7 @@ jobs:
       TF_STATE_BUCKET: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
       TF_STATE_KEY: ${{ vars.AWS_TF_STATE_KEY }}
       AWS_LAMBDA_PACKAGE_BUCKET: ${{ vars.AWS_LAMBDA_PACKAGE_BUCKET }}
+      AWS_LAMBDA_FUNCTION_NAME: ${{ vars.AWS_LAMBDA_FUNCTION_NAME }}
       TF_VAR_aws_allowed_account_ids: '["${{ vars.AWS_EXPECTED_ACCOUNT_ID }}"]'
       TF_VAR_region: ${{ vars.AWS_REGION }}
       TF_VAR_environment: homolog
@@ -83,8 +84,8 @@ jobs:
           test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" && test -n "$AWS_SESSION_TOKEN"
           [[ "$AWS_REGION" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]
           test "$AWS_REGION" = us-east-1
-          test "$AWS_EXPECTED_ACCOUNT_ID" = 108798852045
-          test "$TF_STATE_BUCKET" = autoflow-tfstate-learnerlab-108798852045-us-east-1
+          [[ "$AWS_EXPECTED_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
+          test -n "$TF_STATE_BUCKET"
           test "$TF_STATE_KEY" = lambda/terraform.tfstate
           test -n "$AWS_LAMBDA_PACKAGE_BUCKET"
           test "$AWS_LAMBDA_PACKAGE_BUCKET" = "$TF_STATE_BUCKET"
@@ -106,7 +107,7 @@ jobs:
           set -euo pipefail
           test "$(aws ec2 describe-availability-zones --region "$AWS_REGION" --query 'AvailabilityZones[0].RegionName' --output text)" = "$AWS_REGION"
           aws s3api head-bucket --bucket "$TF_STATE_BUCKET"
-          for key in "$TF_STATE_KEY" "$TF_VAR_infra_state_key" "$TF_VAR_rds_state_key"; do
+          for key in "$TF_VAR_infra_state_key" "$TF_VAR_rds_state_key"; do
             aws s3api head-object --bucket "$TF_STATE_BUCKET" --key "$key" >/dev/null
           done
       - uses: hashicorp/setup-terraform@v3
@@ -116,8 +117,13 @@ jobs:
       - name: Construir pacote Lambda para o plan
         run: bash ./build.sh
       - name: Inicializar state remoto existente
-        working-directory: infra
-        run: terraform init -input=false -reconfigure -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="key=$TF_STATE_KEY" -backend-config="region=$AWS_REGION" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+        env:
+          AWS_TERRAFORM_STATE_BUCKET: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
+          AWS_TF_STATE_KEY: ${{ vars.AWS_TF_STATE_KEY }}
+        run: |
+          python scripts/state_resource_guard.py --bucket "$AWS_TERRAFORM_STATE_BUCKET" --key "$AWS_TF_STATE_KEY" -- aws lambda get-function --function-name "$AWS_LAMBDA_FUNCTION_NAME" --query Configuration.FunctionName --output text
+          cd infra
+          terraform init -input=false -reconfigure -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="key=$TF_STATE_KEY" -backend-config="region=$AWS_REGION" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
       - name: Terraform validate
         working-directory: infra
         run: terraform validate
@@ -175,6 +181,7 @@ jobs:
       TF_STATE_BUCKET: ${{ vars.AWS_TERRAFORM_STATE_BUCKET }}
       TF_STATE_KEY: ${{ vars.AWS_TF_STATE_KEY }}
       AWS_LAMBDA_PACKAGE_BUCKET: ${{ vars.AWS_LAMBDA_PACKAGE_BUCKET }}
+      AWS_LAMBDA_FUNCTION_NAME: ${{ vars.AWS_LAMBDA_FUNCTION_NAME }}
       TF_VAR_aws_allowed_account_ids: '["${{ vars.AWS_EXPECTED_ACCOUNT_ID }}"]'
       TF_VAR_region: ${{ vars.AWS_REGION }}
       TF_VAR_environment: homolog
@@ -203,8 +210,8 @@ jobs:
           set -euo pipefail
           test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" && test -n "$AWS_SESSION_TOKEN"
           test "$AWS_REGION" = us-east-1
-          test "$AWS_EXPECTED_ACCOUNT_ID" = 108798852045
-          test "$TF_STATE_BUCKET" = autoflow-tfstate-learnerlab-108798852045-us-east-1
+          [[ "$AWS_EXPECTED_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
+          test -n "$TF_STATE_BUCKET"
           test "$TF_STATE_KEY" = lambda/terraform.tfstate
           test "$AWS_LAMBDA_PACKAGE_BUCKET" = "$TF_STATE_BUCKET"
           test "$TF_VAR_infra_state_key" = eks/terraform.tfstate
@@ -222,7 +229,7 @@ jobs:
           test "$(aws sts get-caller-identity --query Account --output text)" = "$AWS_EXPECTED_ACCOUNT_ID"
           test "$(aws ec2 describe-availability-zones --region "$AWS_REGION" --query 'AvailabilityZones[0].RegionName' --output text)" = "$AWS_REGION"
           aws s3api head-bucket --bucket "$TF_STATE_BUCKET"
-          for key in "$TF_STATE_KEY" "$TF_VAR_infra_state_key" "$TF_VAR_rds_state_key"; do aws s3api head-object --bucket "$TF_STATE_BUCKET" --key "$key" >/dev/null; done
+          for key in "$TF_VAR_infra_state_key" "$TF_VAR_rds_state_key"; do aws s3api head-object --bucket "$TF_STATE_BUCKET" --key "$key" >/dev/null; done
       - uses: actions/download-artifact@v4
         with:
           name: lambda-tfplan-${{ github.run_id }}
