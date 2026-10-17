@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from review_lambda_plan import review_plan
 
@@ -8,6 +9,16 @@ def change(address, actions, before=None, after=None):
 
 
 class ReviewLambdaPlanTests(unittest.TestCase):
+    def test_manual_dispatch_runs_plan_and_approved_apply_on_develop(self):
+        workflow = (Path(__file__).parents[1] / ".github/workflows/pipeline.yml").read_text(encoding="utf-8")
+        condition = "github.ref == 'refs/heads/develop' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
+        plan, apply = workflow.split("  plan:", 1)[1].split("  apply:", 1)[0], workflow.split("  apply:", 1)[1]
+        self.assertIn(condition, plan)
+        self.assertIn(condition, apply)
+        self.assertIn("environment: homolog", apply)
+        self.assertIn("required_reviewers", apply)
+        self.assertIn("TERRAFORM_APPLY_APPROVAL_CONFIGURED", apply)
+
     def test_allows_plan_without_changes(self):
         self.assertEqual(review_plan({"resource_changes": []}), [])
 
